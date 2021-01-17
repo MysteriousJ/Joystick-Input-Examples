@@ -1,11 +1,14 @@
+# Joystick Input Examples
 
-##Types of devices
-###HID
+This guide assumes you're familiar with Windows programming and C-style C++.
+
+## Types of devices
+### HID
 Standing for Human Interface Device, HID is a standardized communication protocol for USB devices a user directly interacts with, covering anything from keyboards to treadmils. An HID `usage page` is a number describing the purpose of the device, and `usages` are futher subcatagories. Nearly all game controllers use HID usage page 0x01 with usage 0x04 or 0x05, and Windows has several APIs for working with them. You can read the official usage table here: https://usb.org/sites/default/files/hut1_21_0.pdf
 
 HID refers to both the standard protocol, physical devices (the gamepad in your hands), and virtual devices. Games interface with the virtual device while a driver handles communicating those bytes to the physical one. I'll be redundently referring to game controllers as HID devices.
 
-###XInput
+### XInput
 The only controllers you're likely to find that don't use HID are Mirosoft's own XBox controllers. These use a custom communication protocol, and Microsoft introduced a new API to work with them. We'll refer to the driver, the API, and the protocol as XInput.
 
 The XInput API is one of the simplest APIs Microsoft has ever made and is extremly easy to use, but it only works with XBox controllers. This is nice for indie developers as XBox controllers are a small, consistant subset of the wide world of USB game controllers, and doing XBox support well is signigficanlty easier than supporting all possible controllers. The downside is alienating players who only have a PS4 controller, or some other controller that uses HID.
@@ -16,7 +19,7 @@ XBox controllers also work on older games that only support HID. The XInput driv
 
 So, you need XInput to get full correct input from XBox controllers, and you need HID to get input from any other controller. In order to do joystick support well, a game needs to implement support for both. You can get a list of all HID devices on your system to check which ones are XBox controllers and ignore them with the HID API, then use XInput to process them. There's unfortunately no way to associate a virtual HID device with an XInput player index.
 
-##Inputs
+## Inputs
 The basic inputs on joysticks are
 -Buttons, delivered as bitflags.
 -Values for analog sticks and shoulder triggers. Delivered as signed or unsigned integers. Analog sticks have 2 axes, X and Y, that range from MIN_SHORT to MAX_SHORT, with 0 being centered. Triggers can have the same range, or go from 0 to MAX_SHORT.
@@ -24,38 +27,47 @@ The basic inputs on joysticks are
 
 Joysticks may support non-standard inputs such as touchpads and accelerometers. For HID devices, these are delivered along with standardized data, but are specific to the device and must be reverse-engineered. [Here's some reverse-engineering of a Playstation 4 controller](http://eleccelerator.com/wiki/index.php?title=DualShock_4).
 
-##Outputs
+## Outputs
 Older joysticks supported HID force feedback, but not the controllers currently popular for games; XBox and PS4 controllers can't do rumble through HID. XInput provides a function to cause rumble on XBox controllers. You can set rumble and LED color on PS4 controllers by directly writing reverse-engineered data through RawInput.
 
-##APIs
+## APIs
 We'll do a brief overview of each API. The `src` folder contains small example programs to illustrate implementation details. You can run them in Visual Studio by opening `Joystick Input Examples.sln` in the `vs` folder, or by running `build.bat` with a Visual Studio developer command line and launching the `.exe`s.
 
-###Multimedia
+### Multimedia
 Multimedia Joystick is the simplest HID API for Windows. The `Ex` version of the functions and structs support up to 16 controllers at a time, each with up to 32 buttons, 6 axes, and a hat.
 
-Getting the joystick state is one function call to `joyGetPosEx`, which takes a device index and a struct to fill with data. Documentation for this function states the device index starts at zero, but on my Windows 10 machine it starts at 1 (https://docs.microsoft.com/en-us/windows/win32/api/joystickapi/nf-joystickapi-joygetposex).
+Getting the joystick state is one function call to `joyGetPosEx`, which takes a device index and a struct to fill with data. [Documentation for this function](https://docs.microsoft.com/en-us/windows/win32/api/joystickapi/nf-joystickapi-joygetposex) states the device index starts at zero, but on my Windows 10 machine it starts at 1.
 
 Multimedia's functionality is quite limited. It doesn't give you any handles to hardware, so you can't tell what's an Xbox controller to use XInput instead. It also doesn't have any force feedback support.
 
-###DirectInput
-DirectInput is lower level and gives a bit more control. First create a DirectInput object and use it to enumerate HID devices.
+### DirectInput
+DirectInput is lower level and gives a bit more control. It uses a COM interface, so you'll be creating an object that's used to create other objects. First create a DirectInput object with `DirectInput8Create()`. You can use `IDirectInput*` or `IDirectInput8*`; the `8` versions give access to full features, though those features are not used in the `directinput` example.
 
-MSDN provides a function to check if a device is an XBox controller while enumerating HID devices. It searches through all devices on the system to see if they have "IG_" in the device name. If it does, it compares the product and vendor IDs to the direct input device passed into the function, and if they match, returns that the device is an xbox controller.
+To find available joysticks you'll have to enumerate them through a callback function. DirectInput will invoke this function once for each joystick plugged in to your machine.
 
-###RawInput
-The first step with RawInput is registering to recieve input `WM_INPUT` events. Unlike the other APIs, RawInput uses an event queue to get inputs. This has a distinct advantage of being able to get inputs that may have been missed between frames, such as a button being quickly pressed and released (though most games don't worry about this, and players are unlikely to notice).
+[MSDN provides a function](https://docs.microsoft.com/en-us/windows/win32/xinput/xinput-and-directinput) to check if a device is an XBox controller while enumerating HID devices. It searches through all devices on the system to see if they have "IG_" in the device name. If it does, it compares the product and vendor IDs to the direct input device passed into the function, and, if they match, returns that the device is an XBox controller.
+
+Device Caps, short for capabilities, contains information about what fetures the device has, such as number of buttons.
+
+### RawInput
+The first step with RawInput is registering to recieve `WM_INPUT` events. Unlike the other APIs, RawInput uses an event queue to get inputs. This has a distinct advantage of being able to get inputs that may have been missed between frames, such as a button being quickly pressed and released (though most games don't worry about this, and players are unlikely to notice).
 
 To register for events, fill out one or more `RAWINPUTDEVICE` structs and pass an array of them to RegisterRawInputDevices(). The structs take the HID usage page and usages of devices for which to receive events, bit flags, and a handle to the window whose window procedure will receive the events. You can use your game window's existing procedure, or create a non-visible window to encapsulate joystick code. The `rawinput` and `combined` examples use a non-visible window to get events in a terminal-based program.
 
 The documentation for all this on [Microsoft's website](https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/_hid/) is pretty sparse and hard to understand. Open up hidpi.h for much better explanations.
 
-###XInput
+Proper parsing of HID joysticks is complicated and underdocumented. I'm sure there's a thousand problems with the `rawinput` and `combined` examples, and it's the part of this project I most need to improve.
+
+### XInput
 XInput is simple API similar to multimedia joystick. It only works with XBox controllers, but makes getting controller state and setting rumble nice and easy.
 
 XInputGetState() has been known to cause a several milisecond hang when trying to access nonexistant devices, for example, asking for player 2 input when only one controller is plugged in. You'll probably want to query which controller indices are available once, and only get regular updates from devices you know are connected. See the [Detecting Device Changes](#Detecting Device Changes) section for more details.
 
 ### Libraries
+#### SDL
 The most popular joystick libraries are SDL's Joystick and Game Controller interfaces. Joystick provides generic button, axis, and hat data. Game Controller referes to inputs in terms of an xbox controller, giving uniform semantics to all kinds of controllers (see [Controller Database section](#Controller Database)).
+#### Steam
+The Steam API provides joystick support with action mapping, rumble, and LED control, among other features. It's probably best to use this API when shipping your game on Steam for constistent user experience (though you'll still need other options if your game is available elsewhere).
 
 ## Button configuration
 Ideally, players should have full control over how their controller inputs map to game actions with an intuitive interface. Some players will want to play your retro-style game with a super nintendo controller going through a random SNES-to-USB converter they found on ebay. Other players will have physical disabbilities and need to use unusual button mappings or custom-built controllers. Button config is crutial for player experience, but presents numerous complications for developers.
@@ -79,5 +91,5 @@ Somebody at some point made an entry in the SDL database for this device, and ma
 ### Cutting our losses
 Really we can still get decent button config without a database or callibration. Let's imagine a player configuring their Gamecube controller in a press-to-set interface. The want to map the Shoot action to the right shoulder trigger, so they select the action and press down R. The input was negative both this frame and last, so we ignore the initial state. It isn't until the input becomes positive that we create the mapping. After Shoot is Jump, and when the player releases R they accidently map Jump to a negative axis input. They curse, redo that mapping, and move on. So while not perfect, it does support an uncommon controller and lets the user create any mappings they want.
 
-##Detecting Device Changes
+## Detecting Device Changes
 Players may not have all their controllers connected when they launch your game. 
