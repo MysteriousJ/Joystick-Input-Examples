@@ -2,7 +2,6 @@
 #include <Xinput.h>
 #include <stdio.h>
 
-
 int main()
 {
 	DWORD previousPacketNumber = 0;
@@ -32,6 +31,12 @@ int main()
 			if (state.Gamepad.wButtons & XINPUT_GAMEPAD_X)              printf("X ");
 			if (state.Gamepad.wButtons & XINPUT_GAMEPAD_Y)              printf("Y ");
 			printf("\n");
+			
+			XINPUT_VIBRATION vibration;
+			vibration.wLeftMotorSpeed  = state.Gamepad.bLeftTrigger  * 0xFFFF / 0xFF;
+			vibration.wRightMotorSpeed = state.Gamepad.bRightTrigger * 0xFFFF / 0xFF;
+			XInputSetState(0, &vibration);
+
 			previousPacketNumber = state.dwPacketNumber;
 		}
 		Sleep(16);

@@ -4,22 +4,22 @@
 #include <hidsdi.h>
 #include <hidpi.h>
 
-LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+void printRawInputData(LPARAM lParam)
 {
-	if (msg == WM_INPUT) {
-		unsigned int size = 0;
-		unsigned int errorCode = GetRawInputData((HRAWINPUT)lParam, RID_INPUT, NULL, &size, sizeof(RAWINPUTHEADER));
-		RAWINPUT* input = (RAWINPUT*)malloc(size);
-		unsigned int structsWritten = GetRawInputData((HRAWINPUT)lParam, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER));
-		if (structsWritten == -1) {
-			DWORD errorCode = GetLastError();
-			printf("Error code:%d\n", errorCode);
-		}
-		else {
-			GetRawInputDeviceInfo(input->header.hDevice, RIDI_PREPARSEDDATA, 0, &size);
-			_HIDP_PREPARSED_DATA* data = (_HIDP_PREPARSED_DATA*)malloc(size);
-			GetRawInputDeviceInfo(input->header.hDevice, RIDI_PREPARSEDDATA, data, &size);
-
+	UINT size = 0;
+	UINT errorCode = GetRawInputData((HRAWINPUT)lParam, RID_INPUT, NULL, &size, sizeof(RAWINPUTHEADER));
+	RAWINPUT* input = (RAWINPUT*)malloc(size);
+	UINT structsWritten = GetRawInputData((HRAWINPUT)lParam, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER));
+	if (structsWritten == -1) {
+		DWORD errorCode = GetLastError();
+		printf("Error code:%d\n", errorCode);
+	}
+	else {
+		GetRawInputDeviceInfo(input->header.hDevice, RIDI_PREPARSEDDATA, 0, &size);
+		_HIDP_PREPARSED_DATA* data = (_HIDP_PREPARSED_DATA*)malloc(size);
+		UINT bytesWritten = GetRawInputDeviceInfo(input->header.hDevice, RIDI_PREPARSEDDATA, data, &size);
+		if (bytesWritten > 0)
+		{
 			HIDP_CAPS caps;
 			HidP_GetCaps(data, &caps);
 
@@ -46,9 +46,15 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
 				}
 			}
 		}
-		free(input);
-		printf("\n");
+	}
+	free(input);
+	printf("\n");
+}
 
+LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+	if (msg == WM_INPUT) {
+		printRawInputData(lParam);
 		return 0;
 	}
 	if (msg == WM_DEVICECHANGE) {
@@ -92,8 +98,8 @@ int main()
 	// Xbox and PS4 report as usage=5(gamepads), magic joy box reports usage=4(joysticks)
 	RAWINPUTDEVICE rid;
 	rid.usUsagePage = 0x01;
-	rid.usUsage = 0x05;
-	rid.dwFlags = RIDEV_INPUTSINK;
+	rid.usUsage = 0;
+	rid.dwFlags = RIDEV_INPUTSINK | RIDEV_PAGEONLY | RIDEV_DEVNOTIFY;
 	rid.hwndTarget = hwnd;
 	if (!RegisterRawInputDevices(&rid, 1, sizeof(RAWINPUTDEVICE))) {
 		printf("Failed to register device\n");
