@@ -23,6 +23,13 @@ struct JoystickState
 	float previousInputs[inputCount];
 	wchar_t deviceName[maxNameLength];
 	char productName[maxNameLength];
+
+	// Outputs
+	float lightRumble;
+	float heavyRumble;
+	float ledRed;
+	float ledGreen;
+	float ledBlue;
 };
 
 struct Joysticks
@@ -256,16 +263,33 @@ void parsePS4Controller(JoystickState* out, BYTE rawData[], DWORD dataSize)
 {
 	if (dataSize > 6)
 	{
-		unsigned char leftStickX   = *(rawData + 1);
-		unsigned char leftStickY   = *(rawData + 2);
-		unsigned char rightStickX  = *(rawData + 3);
-		unsigned char rightStickY  = *(rawData + 4);
-		unsigned char leftTrigger  = *(rawData + 8);
-		unsigned char rightTrigger = *(rawData + 9);
+		const unsigned char wiredCode = 0x01;
+		const unsigned char wirelessCode = 0x18;
+		unsigned int offset = 0;
+		if (rawData[0]==wirelessCode) {
+			offset = 2;
+			if (rawData[1]==0x40) {
+				return;
+			}
+		}
+		else if (rawData[0]!=wiredCode) {
+			return;
+		}
+		//for (int i=0; i<16; ++i) {
+		//	printf("%2X-", rawData[i]);
+		//}
+		//printf("\n");
 
-		unsigned char buttons1 = *(rawData + 5);
-		unsigned char buttons2 = *(rawData + 6);
-		unsigned char buttons3 = *(rawData + 7);
+		unsigned char leftStickX   = *(rawData + offset + 1);
+		unsigned char leftStickY   = *(rawData + offset + 2);
+		unsigned char rightStickX  = *(rawData + offset + 3);
+		unsigned char rightStickY  = *(rawData + offset + 4);
+		unsigned char leftTrigger  = *(rawData + offset + 8);
+		unsigned char rightTrigger = *(rawData + offset + 9);
+
+		unsigned char buttons1 = *(rawData + offset + 5);
+		unsigned char buttons2 = *(rawData + offset + 6);
+		unsigned char buttons3 = *(rawData + offset + 7);
 
 		unsigned char squareButton   = 1 & (buttons1 >> 4);
 		unsigned char xButton        = 1 & (buttons1 >> 5);
@@ -376,6 +400,35 @@ void parseGenericController(JoystickState* out, BYTE rawData[], DWORD dataSize, 
 	out->type = JoystickTypeGeneric;
 }
 
+void printWindowsErrors()
+{
+	LPTSTR errorText = NULL;
+
+	FormatMessage(
+		// use system message tables to retrieve error text
+		FORMAT_MESSAGE_FROM_SYSTEM
+		// allocate buffer on local heap for error text
+		|FORMAT_MESSAGE_ALLOCATE_BUFFER
+		// Important! will fail otherwise, since we're not 
+		// (and CANNOT) pass insertion parameters
+		|FORMAT_MESSAGE_IGNORE_INSERTS,  
+		NULL,    // unused with FORMAT_MESSAGE_FROM_SYSTEM
+		GetLastError(),
+		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+		(LPTSTR)&errorText,  // output 
+		0, // minimum size for output buffer
+		NULL);   // arguments - see note 
+
+	if ( NULL != errorText )
+	{
+		wprintf(L"error:%s ", errorText);
+
+		// release memory allocated by FormatMessage()
+		LocalFree(errorText);
+		errorText = NULL;
+	}
+}
+
 void updateRawInput(Joysticks* joysticks, LPARAM lParam)
 {
 	UINT size = 0;
@@ -412,6 +465,15 @@ void updateRawInput(Joysticks* joysticks, LPARAM lParam)
 			JoystickState* state = &joysticks->states[joystickIndex];
 			if (deviceInfo.hid.dwProductId == 2508) {
 				parsePS4Controller(state, input->data.hid.bRawData, input->data.hid.dwSizeHid);
+				unsigned char output[547] = {0};
+				output[0] = 0x05;
+				output[1] = 0xFF;
+				output[4] = (unsigned char)(state->lightRumble*255);
+				output[5] = (unsigned char)(state->heavyRumble*255);
+				//HANDLE hidDevice = CreateFileW(deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+				//HidD_SetOutputReport(hidDevice, output, sizeof(output));
+				//printWindowsErrors();
+				//WriteFile(hidDevice, output, sizeof(output), 0, 0);
 			}
 			else {
 				parseGenericController(state, input->data.hid.bRawData, input->data.hid.dwSizeHid, data);
@@ -592,13 +654,32 @@ void setJoystickForceFeedback(Joysticks* joysticks, unsigned int joystickIndex, 
 	}
 	if (joysticks->states[joystickIndex].type == JoystickTypePS4) {
 		HANDLE hidDevice = CreateFileW(joysticks->states[joystickIndex].deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+		//HANDLE hidDevice = CreateFileW(joysticks->states[joystickIndex].deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
 		if (hidDevice != INVALID_HANDLE_VALUE) {
-			unsigned char output[32] = {0};
-			output[0] = 0x05;
-			output[1] = 0xFF;
-			output[4] = (unsigned char)(leftForceFeedback*255);
-			output[5] = (unsigned char)(rightForceFeedback*255);
-			WriteFile(hidDevice, output, sizeof(output), 0, 0);
+			// USB
+			//unsigned char output[32] = {0};
+			//output[0] = 0x05;
+			//output[1] = 0xFF;
+			//output[4] = (unsigned char)(joysticks->states[joystickIndex].lightRumble*255);
+			//output[5] = (unsigned char)(joysticks->states[joystickIndex].heavyRumble*255);
+			//output[6] = (unsigned char)(joysticks->states[joystickIndex].ledRed*255);
+			//output[7] = (unsigned char)(joysticks->states[joystickIndex].ledGreen*255);
+			//output[8] = (unsigned char)(joysticks->states[joystickIndex].ledBlue*255);
+			// Bluetooth
+			unsigned char output[78] = {0};
+			output[0] = 0x11;
+			output[1] = 0x80;
+			output[2] = 0x0f;
+			output[6] = (unsigned char)(joysticks->states[joystickIndex].lightRumble*255);
+			output[7] = (unsigned char)(joysticks->states[joystickIndex].heavyRumble*255);
+			output[8] = (unsigned char)(joysticks->states[joystickIndex].ledRed*255);
+			output[9] = (unsigned char)(joysticks->states[joystickIndex].ledGreen*255);
+			output[10] = (unsigned char)(joysticks->states[joystickIndex].ledBlue*255);
+			OVERLAPPED ovelappedInfo = {0};
+			WriteFile(hidDevice, output, sizeof(output), 0, &ovelappedInfo);
+			//HidD_SetOutputReport(hidDevice, output, sizeof(output));
+			//printWindowsErrors();
+			CloseHandle(hidDevice);
 		}
 	}
 }
@@ -617,16 +698,17 @@ const char* getInputName(Joysticks joysticks, unsigned int joystickIndex, unsign
 int main()
 {
 	Joysticks joysticks = createJoysticks();
-
+	unsigned int frameNumber = 0;
 	while (1)
 	{
+		//printf("frame%d ", frameNumber);
 		updateJoysticks(&joysticks);
 		for (unsigned int joystickIndex=0; joystickIndex<joysticks.count; ++joystickIndex)
 		{
-			JoystickState state  = joysticks.states[joystickIndex];
-			for (unsigned int inputIndex=0; inputIndex<state.inputCount; ++inputIndex)
+			JoystickState* state = &joysticks.states[joystickIndex];
+			for (unsigned int inputIndex=0; inputIndex<state->inputCount; ++inputIndex)
 			{
-				if (state.currentInputs[inputIndex] > 0.5 && state.previousInputs[inputIndex] <= 0.5f)
+				if (state->currentInputs[inputIndex] > 0.5 && state->previousInputs[inputIndex] <= 0.5f)
 				{
 					const char* inputName = getInputName(joysticks, joystickIndex, inputIndex);
 					printf("%s ", inputName);
@@ -634,17 +716,19 @@ int main()
 
 				float rumbleLeft = 0;
 				float rumbleRight = 0;
-				if (state.type == JoystickTypeXbox) {
-					rumbleLeft = state.currentInputs[XboxInputLeftTrigger];
-					rumbleRight = state.currentInputs[XboxInputRightTrigger];
+				if (state->type == JoystickTypeXbox) {
+					state->lightRumble = state->currentInputs[XboxInputLeftTrigger];
+					state->heavyRumble = state->currentInputs[XboxInputRightTrigger];
 				}
-				else if (state.type == JoystickTypePS4) {
-					rumbleLeft = state.currentInputs[PS4InputL2];
-					rumbleRight = state.currentInputs[PS4InputR2];
+				else if (state->type == JoystickTypePS4) {
+					state->heavyRumble = state->currentInputs[PS4InputL2];
+					state->lightRumble = state->currentInputs[PS4InputR2];
+					state->ledGreen = state->currentInputs[PS4InputTriangle];
 				}
 				setJoystickForceFeedback(&joysticks, joystickIndex, rumbleLeft, rumbleRight);
 			}
 		}
+		++frameNumber;
 		Sleep(16);
 	}
 }

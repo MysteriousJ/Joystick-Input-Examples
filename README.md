@@ -3,8 +3,9 @@
 This guide assumes you're familiar with Windows programming and C-style C++.
 
 ## Types of devices
+
 ### HID
-Standing for Human Interface Device, HID is a standardized communication protocol for USB devices a user directly interacts with, covering anything from keyboards to treadmils. An HID `usage page` is a number describing the purpose of the device, and `usages` are futher subcatagories. Nearly all game controllers use HID usage page 0x01 with usage 0x04 or 0x05, and Windows has several APIs for working with them. You can read the official usage table here: https://usb.org/sites/default/files/hut1_21_0.pdf
+Standing for Human Interface Device, HID is a standardized communication protocol for USB devices a user directly interacts with, covering anything from keyboards to treadmils. An HID `usage page` is a number describing the purpose of the device, and `usages` are futher subcatagories. Modern game controllers use HID usage page 0x01 with usage 0x04 or 0x05, and Windows has several APIs for working with them. You can read the official usage table here: https://usb.org/sites/default/files/hut1_21_0.pdf
 
 HID refers to both the standard protocol, physical devices (the gamepad in your hands), and virtual devices. Games interface with the virtual device while a driver handles communicating those bytes to the physical one. I'll be redundently referring to game controllers as HID devices.
 
@@ -21,14 +22,21 @@ So, you need XInput to get full correct input from XBox controllers, and you nee
 
 ## Inputs
 The basic inputs on joysticks are
--Buttons, delivered as bitflags.
--Values for analog sticks and shoulder triggers. Delivered as signed or unsigned integers. Analog sticks have 2 axes, X and Y, that range from MIN_SHORT to MAX_SHORT, with 0 being centered. Triggers can have the same range, or go from 0 to MAX_SHORT.
+- Buttons, delivered as bitflags.
+- Values for analog sticks and shoulder triggers. Delivered as signed or unsigned integers. Analog sticks have 2 axes, X and Y, that range from MIN_SHORT to MAX_SHORT, with 0 being centered. Triggers can have the same range, or go from 0 to MAX_SHORT.
 - A POV hat for the d-pad. This can be implemented as bitflags or a integer representing a direction, such as 1 to the north, 2 to north-east, 3 to east, etc. and 0 for being centered.
 
 Joysticks may support non-standard inputs such as touchpads and accelerometers. For HID devices, these are delivered along with standardized data, but are specific to the device and must be reverse-engineered. [Here's some reverse-engineering of a Playstation 4 controller](http://eleccelerator.com/wiki/index.php?title=DualShock_4).
 
 ## Outputs
+Outputs are usually non-standard extensions, such as
+- Force feedback, a.k.a. rumble or haptics
+- LEDs
+- Audio
+
 Older joysticks supported HID force feedback, but not the controllers currently popular for games; XBox and PS4 controllers can't do rumble through HID. XInput provides a function to cause rumble on XBox controllers. You can set rumble and LED color on PS4 controllers by directly writing reverse-engineered data through RawInput.
+
+Some APIs have "Effects" for force feedback that get generalized and complex, but XBox and PS4 rumble is activated through two simple linear values—one for each motor in the gamepad. If a program never turns off rumble, XBox controllers will stop rumbling when the program terminates. PS4 controllers will continue to rumble, but stop after a few seconds of recieving no instructions.
 
 ## APIs
 We'll do a brief overview of each API. The `src` folder contains small example programs to illustrate implementation details. You can run them in Visual Studio by opening `Joystick Input Examples.sln` in the `vs` folder, or by running `build.bat` with a Visual Studio developer command line and launching the `.exe`s.
@@ -54,7 +62,7 @@ The first step with RawInput is registering to recieve `WM_INPUT` events. Unlike
 
 To register for events, fill out one or more `RAWINPUTDEVICE` structs and pass an array of them to RegisterRawInputDevices(). The structs take the HID usage page and usages of devices for which to receive events, bit flags, and a handle to the window whose window procedure will receive the events. You can use your game window's existing procedure, or create a non-visible window to encapsulate joystick code. The `rawinput` and `combined` examples use a non-visible window to get events in a terminal-based program.
 
-The documentation for all this on [Microsoft's website](https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/_hid/) is pretty sparse and hard to understand. Open up hidpi.h for much better explanations.
+The documentation for all this on [MSDN](https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/_hid/) is pretty sparse and hard to understand. Open up hidpi.h for much better explanations.
 
 Proper parsing of HID joysticks is complicated and underdocumented. I'm sure there's a thousand problems with the `rawinput` and `combined` examples, and it's the part of this project I most need to improve.
 
@@ -63,7 +71,11 @@ XInput is simple API similar to multimedia joystick. It only works with XBox con
 
 XInputGetState() has been known to cause a several milisecond hang when trying to access nonexistant devices, for example, asking for player 2 input when only one controller is plugged in. You'll probably want to query which controller indices are available once, and only get regular updates from devices you know are connected. See the [Detecting Device Changes](#Detecting Device Changes) section for more details.
 
+### Files
+You can interact with a device by opening it with `CreateFile()`. This gives you maximum control over the device; you just have to know what bytes to use. It's straightforward way to communicate with popular devices that are worth your time to hard code. This method is used to set rumble and light bar color on PS4 controllers in the `combined` example.
+
 ### Libraries
+
 #### SDL
 The most popular joystick libraries are SDL's Joystick and Game Controller interfaces. Joystick provides generic button, axis, and hat data. Game Controller referes to inputs in terms of an xbox controller, giving uniform semantics to all kinds of controllers (see [Controller Database section](#Controller Database)).
 #### Steam
@@ -92,4 +104,19 @@ Somebody at some point made an entry in the SDL database for this device, and ma
 Really we can still get decent button config without a database or callibration. Let's imagine a player configuring their Gamecube controller in a press-to-set interface. The want to map the Shoot action to the right shoulder trigger, so they select the action and press down R. The input was negative both this frame and last, so we ignore the initial state. It isn't until the input becomes positive that we create the mapping. After Shoot is Jump, and when the player releases R they accidently map Jump to a negative axis input. They curse, redo that mapping, and move on. So while not perfect, it does support an uncommon controller and lets the user create any mappings they want.
 
 ## Detecting Device Changes
-Players may not have all their controllers connected when they launch your game. 
+Players may not have all their controllers connected when they launch your game. A surprising number of PC games enumerate controllers only when they start, requiring a full restart of the program to detect any devices that were plugged in while the game was running.
+
+Enumeration can be slow—I've seen DirectInput take over 70ms to complete enumeration, so doing it every frame isn't an option. `SDL_NumJoysticks()` seems to only re-enumerate every few seconds, so it runs smoothly then causes a massive hitch if called every frame. So you should only enumerate when you're sure devices have been changed. It might still cause a frame drop, but the player is unlikely to notice while they're fiddling with USB ports.
+
+Hotplugging, as it is often called, is easy to support at the Windows API level. For RawInput, use the `RIDEV_DEVNOTIFY` flag when registering for events, and the window procedure will receive `WM_INPUT_DEVICE_CHANGE` messages whenever a device is plugged in or removed. A handle to that device will be available in `lParam`. For other APIs, add the following during program startup:
+```C
+DEV_BROADCAST_DEVICEINTERFACE notificationFilter = { sizeof(DEV_BROADCAST_DEVICEINTERFACE), DBT_DEVTYP_DEVICEINTERFACE };
+RegisterDeviceNotification(hwnd, &notificationFilter, DEVICE_NOTIFY_WINDOW_HANDLE);
+```
+This will register your window procedure to receive `WM_DEVICECHANGE` messages. These will also be sent when a device is plugged in or taken out. SDL offers similar events, `SDL_JOYDEVICEADDED` and `SDL_JOYDEVICEREMOVED`. Once you know there's been a change in available devices, you can re-enumerate them.
+
+Handling hot-plugging at the game-logic level is probably going to be a lot more complicated. You may want to notify the player and/or pause the game when their controller is unplugged. Charging cables that come with PS4 controllers are notoriously loose, and *Cuphead* saved me many times by pausing the game when my controller disconnected.
+
+A multiplayer game could have several controllers plugged in and removed frequently as players join in and take breaks. If you just associate a player with index into the array of all available joysticks, player 3 could suddenly become player 2 when a joystick is disconnected. Even worse, button configurations specific to each device or player could become mixed up. The XInput driver handles this well for XBox controllers: player 2 will still be player 2 even if player 1 disconnects. For HID, you'll need some unique ID for each joystick to keep track of them; the `combined` example uses the device name from RawInput. It keeps disconnected joysticks around in the array so it can put them back in the same place if reconnected, and user code would only have to worry about index for player and button config associations.
+
+## Displaying Physical Buttons
