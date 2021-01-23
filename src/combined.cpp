@@ -657,24 +657,24 @@ void setJoystickForceFeedback(Joysticks* joysticks, unsigned int joystickIndex, 
 		//HANDLE hidDevice = CreateFileW(joysticks->states[joystickIndex].deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
 		if (hidDevice != INVALID_HANDLE_VALUE) {
 			// USB
-			//unsigned char output[32] = {0};
-			//output[0] = 0x05;
-			//output[1] = 0xFF;
-			//output[4] = (unsigned char)(joysticks->states[joystickIndex].lightRumble*255);
-			//output[5] = (unsigned char)(joysticks->states[joystickIndex].heavyRumble*255);
-			//output[6] = (unsigned char)(joysticks->states[joystickIndex].ledRed*255);
-			//output[7] = (unsigned char)(joysticks->states[joystickIndex].ledGreen*255);
-			//output[8] = (unsigned char)(joysticks->states[joystickIndex].ledBlue*255);
+			unsigned char output[32] = {0};
+			output[0] = 0x05;
+			output[1] = 0xFF;
+			output[4] = (unsigned char)(joysticks->states[joystickIndex].lightRumble*255);
+			output[5] = (unsigned char)(joysticks->states[joystickIndex].heavyRumble*255);
+			output[6] = (unsigned char)(joysticks->states[joystickIndex].ledRed*255);
+			output[7] = (unsigned char)(joysticks->states[joystickIndex].ledGreen*255);
+			output[8] = (unsigned char)(joysticks->states[joystickIndex].ledBlue*255);
 			// Bluetooth
-			unsigned char output[78] = {0};
-			output[0] = 0x11;
-			output[1] = 0x80;
-			output[2] = 0x0f;
-			output[6] = (unsigned char)(joysticks->states[joystickIndex].lightRumble*255);
-			output[7] = (unsigned char)(joysticks->states[joystickIndex].heavyRumble*255);
-			output[8] = (unsigned char)(joysticks->states[joystickIndex].ledRed*255);
-			output[9] = (unsigned char)(joysticks->states[joystickIndex].ledGreen*255);
-			output[10] = (unsigned char)(joysticks->states[joystickIndex].ledBlue*255);
+			//unsigned char output[78] = {0};
+			//output[0] = 0x11;
+			//output[1] = 0x80;
+			//output[2] = 0x0f;
+			//output[6] = (unsigned char)(joysticks->states[joystickIndex].lightRumble*255);
+			//output[7] = (unsigned char)(joysticks->states[joystickIndex].heavyRumble*255);
+			//output[8] = (unsigned char)(joysticks->states[joystickIndex].ledRed*255);
+			//output[9] = (unsigned char)(joysticks->states[joystickIndex].ledGreen*255);
+			//output[10] = (unsigned char)(joysticks->states[joystickIndex].ledBlue*255);
 			OVERLAPPED ovelappedInfo = {0};
 			WriteFile(hidDevice, output, sizeof(output), 0, &ovelappedInfo);
 			//HidD_SetOutputReport(hidDevice, output, sizeof(output));

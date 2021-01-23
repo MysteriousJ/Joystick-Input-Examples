@@ -69,15 +69,19 @@ Proper parsing of HID joysticks is complicated and underdocumented. I'm sure the
 ### XInput
 XInput is simple API similar to multimedia joystick. It only works with XBox controllers, but makes getting controller state and setting rumble nice and easy.
 
-XInputGetState() has been known to cause a several milisecond hang when trying to access nonexistant devices, for example, asking for player 2 input when only one controller is plugged in. You'll probably want to query which controller indices are available once, and only get regular updates from devices you know are connected. See the [Detecting Device Changes](#Detecting Device Changes) section for more details.
+XInputGetState() has been known to cause a several milisecond hang when trying to access nonexistant devices, for example, asking for player 2 input when only one controller is plugged in. You'll probably want to query which controller indices are available once, and only get regular updates from devices you know are connected. See the [Detecting Device Changes](#detecting-device-changes) section for more details.
 
 ### Files
 You can interact with a device by opening it with `CreateFile()`. This gives you maximum control over the device; you just have to know what bytes to use. It's straightforward way to communicate with popular devices that are worth your time to hard code. This method is used to set rumble and light bar color on PS4 controllers in the `combined` example.
 
+If WriteFile is used in PS4 bluetooth, it will send packets similar to wired mode, but only containing HID standard data.
+
+Use the size of the input report to determine if a dualshock 4 is wired or bluetooth. the first byte of a wireless report should be 0x11, but may be different if it was misconfigured by your application or another.
+
 ### Libraries
 
 #### SDL
-The most popular joystick libraries are SDL's Joystick and Game Controller interfaces. Joystick provides generic button, axis, and hat data. Game Controller referes to inputs in terms of an xbox controller, giving uniform semantics to all kinds of controllers (see [Controller Database section](#Controller Database)).
+The most popular joystick libraries are SDL's Joystick and Game Controller interfaces. Joystick provides generic button, axis, and hat data. Game Controller referes to inputs in terms of an xbox controller, giving uniform semantics to all kinds of controllers (see [Controller Database section](#controller-database)).
 #### Steam
 The Steam API provides joystick support with action mapping, rumble, and LED control, among other features. It's probably best to use this API when shipping your game on Steam for constistent user experience (though you'll still need other options if your game is available elsewhere).
 
@@ -93,7 +97,9 @@ PS4 controllers have another problem: R2 and L2 report both a button and an axis
 So what of generic HID devices? How do we correctly map inputs when they could be anything?
 
 ### Controller Database
-SDL's Game Controller interface brings the idea of expressing every controller one could possibly plug into a PC in terms of an XBox controller. They crowd-sourced a database that maps hardware IDs to button configurations, eliminating the headaches of generic input. You can then apply your game's own mapping, and effectivly only worry about xbox controllers while support many more than that. SDL includes the database in its source code and is ready to go if you use the Game Controller interface. You can also download the database and parse it yourself if you're not using SDL: https://github.com/gabomdq/SDL_GameControllerDB
+SDL's Game Controller interface brings the idea of expressing every controller one could possibly plug into a PC in terms of an XBox controller. They crowd-sourced a database that maps hardware IDs to button configurations, eliminating the headaches of generic input. You can then apply your game's own mapping, and effectivly only worry about xbox controllers while support many more than that. Another advantage is more accurate names to display to users; the Playstation 4 controller calls itself "Wireless Controller", but a database can call it "PS4 Controller" or "Dualshock 4."
+
+SDL includes the database in its source code and is ready to go if you use the Game Controller interface. You can also download the database and parse it yourself if you're not using SDL: https://github.com/gabomdq/SDL_GameControllerDB
 
 The one problem with the database approch is that it doesn't work with USB converters that support multiple types of controllers. The device only has one hardware ID for all the controllers. For example, I have a converter which supports PS2, Gamecube, and origonal XBox controllers: https://www.mayflash.com/Products/UNIVERSAL/PC035.html
 Somebody at some point made an entry in the SDL database for this device, and mapped it for gamecube controllers. I use it for a PS2 controller, so the mapping is totally wrong and renders some buttons unusable. Still, the database approch will work fantastically well for nearly all of your players.
@@ -120,3 +126,6 @@ Handling hot-plugging at the game-logic level is probably going to be a lot more
 A multiplayer game could have several controllers plugged in and removed frequently as players join in and take breaks. If you just associate a player with index into the array of all available joysticks, player 3 could suddenly become player 2 when a joystick is disconnected. Even worse, button configurations specific to each device or player could become mixed up. The XInput driver handles this well for XBox controllers: player 2 will still be player 2 even if player 1 disconnects. For HID, you'll need some unique ID for each joystick to keep track of them; the `combined` example uses the device name from RawInput. It keeps disconnected joysticks around in the array so it can put them back in the same place if reconnected, and user code would only have to worry about index for player and button config associations.
 
 ## Displaying Physical Buttons
+Console games have long displayed icons instead of words to tell players which button to press. Modern PC games are also using button icons, a.k.a. glyphs, in thier displayed text for popular controllers. Steam provides a set of glyphs for games to use that's accessible through their API. Games like *Hades* have their own set of glyphs to match the game's aethetic for an extra level of polish.
+
+Strings displayed to the user will need to encode logical games actions for which a glyph will be displayed; for example, `Press [action:jump] to jump!`. Before displaying the string, ask the button configuration which physical button maps to that action, and finally, use that as a key to look up the glyph. The `combined` example has unique strings for each physical button that could be used as keys in a glyph table.
