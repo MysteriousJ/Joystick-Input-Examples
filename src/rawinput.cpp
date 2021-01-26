@@ -32,6 +32,7 @@ void printRawInputData(LPARAM lParam)
 				HidP_GetUsageValue(HidP_Input, valueCaps[i].UsagePage, 0, valueCaps[i].Range.UsageMin, &value, data, (PCHAR)input->data.hid.bRawData, input->data.hid.dwSizeHid);
 				printf("%d:%5d ", i, value);
 			}
+			free(valueCaps);
 
 			printf("Buttons: ");
 			HIDP_BUTTON_CAPS* buttonCaps = (HIDP_BUTTON_CAPS*)malloc(caps.NumberInputButtonCaps * sizeof(HIDP_BUTTON_CAPS));
@@ -39,13 +40,16 @@ void printRawInputData(LPARAM lParam)
 			for (unsigned int i = 0; i < caps.NumberInputButtonCaps; ++i)
 			{
 				unsigned int buttonCount = buttonCaps->Range.UsageMax - buttonCaps->Range.UsageMin + 1;
-				USAGE* usage = (USAGE*)malloc(sizeof(USAGE) * buttonCount);
-				HidP_GetUsages(HidP_Input, buttonCaps[i].UsagePage, 0, usage, (PULONG)&buttonCount, data, (PCHAR)input->data.hid.bRawData, input->data.hid.dwSizeHid);
+				USAGE* usages = (USAGE*)malloc(sizeof(USAGE) * buttonCount);
+				HidP_GetUsages(HidP_Input, buttonCaps[i].UsagePage, 0, usages, (PULONG)&buttonCount, data, (PCHAR)input->data.hid.bRawData, input->data.hid.dwSizeHid);
 				for (unsigned int buttonIndex=0; buttonIndex < buttonCount; ++buttonIndex) {
-					printf("%d ", usage[buttonIndex]);
+					printf("%d ", usages[buttonIndex]);
 				}
+				free(usages);
 			}
+			free(buttonCaps);
 		}
+		free(data);
 	}
 	free(input);
 	printf("\n");
@@ -55,13 +59,6 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
 {
 	if (msg == WM_INPUT) {
 		printRawInputData(lParam);
-		return 0;
-	}
-	if (msg == WM_DEVICECHANGE) {
-		return 0;
-	}
-	if (msg == WM_DESTROY) {
-		PostQuitMessage(0);
 		return 0;
 	}
 	return DefWindowProc(hwnd, msg, wParam, lParam);
@@ -77,52 +74,26 @@ int main()
 	RegisterClass(&wnd);
 	HWND hwnd = CreateWindow(wnd.lpszClassName, 0, 0, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, wnd.hInstance, 0);
 
-	// Register window to recieve WM_DEVICECHANGE when joysticks are plugged in or taken out
-	DEV_BROADCAST_DEVICEINTERFACE notificationFilter = { sizeof(DEV_BROADCAST_DEVICEINTERFACE), DBT_DEVTYP_DEVICEINTERFACE };
-	RegisterDeviceNotification(0, &notificationFilter, DEVICE_NOTIFY_WINDOW_HANDLE);
-
-	// Enumerate devices
-	unsigned int deviceCount = 0;
-	GetRawInputDeviceList(0, &deviceCount, sizeof(RAWINPUTDEVICELIST));
-	RAWINPUTDEVICELIST* deviceLists = (RAWINPUTDEVICELIST*)malloc(sizeof(RAWINPUTDEVICELIST) * deviceCount);
-	GetRawInputDeviceList(deviceLists, &deviceCount, sizeof(RAWINPUTDEVICELIST));
-	for (unsigned int i = 0; i < deviceCount; ++i) {
-		unsigned int bufferSize = 100;
-		char data[100] = { 0 };
-		GetRawInputDeviceInfoA(deviceLists[i].hDevice, RIDI_DEVICENAME, (void*)data, &bufferSize);
-		char* deviceName = (char*)data;
-		printf("%s\n", deviceName);
-	}
-
 	// Register devices
-	// Xbox and PS4 report as usage=5(gamepads), magic joy box reports usage=4(joysticks)
-	RAWINPUTDEVICE rid;
-	rid.usUsagePage = 0x01;
-	rid.usUsage = 0;
-	rid.dwFlags = RIDEV_INPUTSINK | RIDEV_PAGEONLY | RIDEV_DEVNOTIFY;
-	rid.hwndTarget = hwnd;
-	if (!RegisterRawInputDevices(&rid, 1, sizeof(RAWINPUTDEVICE))) {
-		printf("Failed to register device\n");
-	}
-	else {
-		printf("Registered device\n");
-	}
+	RAWINPUTDEVICE deviceDesc;
+	deviceDesc.usUsagePage = 0x01;
+	deviceDesc.dwFlags = RIDEV_INPUTSINK;
+	deviceDesc.hwndTarget = hwnd;
 
-	bool run = true;
-	while (run) 
-	{
-		MSG msg;
-		while (GetMessage(&msg, NULL, 0, 0)) {
-			TranslateMessage(&msg);
-			DispatchMessage(&msg);
+	RAWINPUTDEVICE deviceList[2];
+	deviceDesc.usUsage = 0x04;
+	deviceList[0] = deviceDesc;
+	deviceDesc.usUsage = 0x05;
+	deviceList[1] = deviceDesc;
 
-			if (msg.message == WM_QUIT) {
-				run = false;
-			}
-			
-		}
+	UINT deviceCount = sizeof(deviceList)/sizeof(*deviceList);
+	RegisterRawInputDevices(deviceList, deviceCount, sizeof(RAWINPUTDEVICE));
+
+	// Message loop
+	MSG msg;
+	while (GetMessage(&msg, NULL, 0, 0)) {
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
 	}
-
-	return 0;
 }
 

@@ -12,6 +12,21 @@ enum JoystickType
 	JoystickTypePS4
 };
 
+struct OutputThreadData
+{
+	enum Type {
+		type_writeFile, type_setOutputReport, type_stop
+	};
+
+	volatile DWORD byteCount;
+	volatile BYTE buffer[128];
+	volatile Type type;
+	volatile HANDLE file;
+	HANDLE thread;
+	CONDITION_VARIABLE conditionVariable;
+	CRITICAL_SECTION criticalSection;
+};
+
 struct JoystickState
 {
 	static const unsigned int inputCount = 64;
@@ -23,6 +38,7 @@ struct JoystickState
 	float previousInputs[inputCount];
 	wchar_t deviceName[maxNameLength];
 	char productName[maxNameLength];
+	char manufacturerName[maxNameLength];
 
 	// Outputs
 	float lightRumble;
@@ -30,10 +46,13 @@ struct JoystickState
 	float ledRed;
 	float ledGreen;
 	float ledBlue;
+
+	OutputThreadData* outputThreadData;
 };
 
 struct Joysticks
 {
+	static const unsigned int maxXinputControllers = 4;
 	unsigned int count;
 	JoystickState* states;
 	HWND hwnd;
@@ -68,30 +87,30 @@ enum XboxInputs
 };
 
 const char* xboxInputNames[] = {
-	"A",
-	"B",
-	"X",
-	"Y",
-	"Left",
-	"Right",
-	"Up",
-	"Down",
-	"LB",
-	"RB",
-	"LS",
-	"RS",
-	"Back",
-	"Start",
-	"Left Trigger",
-	"Right Trigger",
-	"Left Stick Left",
-	"Left Stick Right",
-	"Left Stick Up",
-	"Left Stick Down",
-	"Right Stick Left",
-	"Right Stick Right",
-	"Right Stick Up",
-	"Right Stick Down",
+	"XBox-A",
+	"XBox-B",
+	"XBox-X",
+	"XBox-Y",
+	"XBox-Left",
+	"XBox-Right",
+	"XBox-Up",
+	"XBox-Down",
+	"XBox-LB",
+	"XBox-RB",
+	"XBox-LS",
+	"XBox-RS",
+	"XBox-Back",
+	"XBox-Start",
+	"XBox-Left Trigger",
+	"XBox-Right Trigger",
+	"XBox-Left Stick Left",
+	"XBox-Left Stick Right",
+	"XBox-Left Stick Up",
+	"XBox-Left Stick Down",
+	"XBox-Right Stick Left",
+	"XBox-Right Stick Right",
+	"XBox-Right Stick Up",
+	"XBox-Right Stick Down",
 };
 
 enum PS4Inputs {
@@ -124,32 +143,32 @@ enum PS4Inputs {
 };
 
 const char* ps4InputNames[] = {
-	"Square",
-	"X",
-	"Circle",
-	"Triangle",
-	"L1",
-	"R1",
-	"L3",
-	"R3",
-	"Options",
-	"Share",
-	"PlayStation Button",
-	"Touch Pad Button",
-	"Left Stick Left",
-	"Left Stick Right",
-	"Left Stick Up",
-	"Left Stick Down",
-	"Right Stick Left",
-	"Right Stick Right",
-	"Right Stick Up",
-	"Right Stick Down",
-	"L2",
-	"R2",
-	"Dpad Left",
-	"Dpad Right",
-	"Dpad Up",
-	"Dpad Down",
+	"DS4-Square",
+	"DS4-X",
+	"DS4-Circle",
+	"DS4-Triangle",
+	"DS4-L1",
+	"DS4-R1",
+	"DS4-L3",
+	"DS4-R3",
+	"DS4-Options",
+	"DS4-Share",
+	"DS4-PlayStation Button",
+	"DS4-Touch Pad Button",
+	"DS4-Left Stick Left",
+	"DS4-Left Stick Right",
+	"DS4-Left Stick Up",
+	"DS4-Left Stick Down",
+	"DS4-Right Stick Left",
+	"DS4-Right Stick Right",
+	"DS4-Right Stick Up",
+	"DS4-Right Stick Down",
+	"DS4-L2",
+	"DS4-R2",
+	"DS4-Dpad Left",
+	"DS4-Dpad Right",
+	"DS4-Dpad Up",
+	"DS4-Dpad Down",
 };
 
 enum GenericInputs {
@@ -204,135 +223,174 @@ enum GenericInputs {
 };
 
 const char* genericInputNames[] = {
-	"Button 0",
-	"Button 1",
-	"Button 2",
-	"Button 3",
-	"Button 4",
-	"Button 5",
-	"Button 6",
-	"Button 7",
-	"Button 8",
-	"Button 9",
-	"Button 10",
-	"Button 11",
-	"Button 12",
-	"Button 13",
-	"Button 14",
-	"Button 15",
-	"Button 16",
-	"Button 17",
-	"Button 18",
-	"Button 19",
-	"Button 20",
-	"Button 21",
-	"Button 22",
-	"Button 23",
-	"Button 24",
-	"Button 25",
-	"Button 26",
-	"Button 27",
-	"Button 28",
-	"Button 29",
-	"Button 30",
-	"Button 31",
-	"Axis 0+",
-	"Axis 0-",
-	"Axis 1+",
-	"Axis 1-",
-	"Axis 2+",
-	"Axis 2-",
-	"Axis 3+",
-	"Axis 3-",
-	"Axis 4+",
-	"Axis 4-",
-	"Axis 5+",
-	"Axis 5-",
-	"Hat Left",
-	"Hat Right",
-	"Hat Up,"
-	"Hat Down",
+	"Controller-Button 0",
+	"Controller-Button 1",
+	"Controller-Button 2",
+	"Controller-Button 3",
+	"Controller-Button 4",
+	"Controller-Button 5",
+	"Controller-Button 6",
+	"Controller-Button 7",
+	"Controller-Button 8",
+	"Controller-Button 9",
+	"Controller-Button 10",
+	"Controller-Button 11",
+	"Controller-Button 12",
+	"Controller-Button 13",
+	"Controller-Button 14",
+	"Controller-Button 15",
+	"Controller-Button 16",
+	"Controller-Button 17",
+	"Controller-Button 18",
+	"Controller-Button 19",
+	"Controller-Button 20",
+	"Controller-Button 21",
+	"Controller-Button 22",
+	"Controller-Button 23",
+	"Controller-Button 24",
+	"Controller-Button 25",
+	"Controller-Button 26",
+	"Controller-Button 27",
+	"Controller-Button 28",
+	"Controller-Button 29",
+	"Controller-Button 30",
+	"Controller-Button 31",
+	"Controller-Axis 0+",
+	"Controller-Axis 0-",
+	"Controller-Axis 1+",
+	"Controller-Axis 1-",
+	"Controller-Axis 2+",
+	"Controller-Axis 2-",
+	"Controller-Axis 3+",
+	"Controller-Axis 3-",
+	"Controller-Axis 4+",
+	"Controller-Axis 4-",
+	"Controller-Axis 5+",
+	"Controller-Axis 5-",
+	"Controller-Hat Left",
+	"Controller-Hat Right",
+	"Controller-Hat Up,"
+	"Controller-Hat Down",
 };
+
+int outputThread(void* param)
+{
+	puts("start");
+	OutputThreadData* data = (OutputThreadData*)param;
+	EnterCriticalSection(&data->criticalSection);
+	while (data->type != OutputThreadData::type_stop)
+	{
+		SleepConditionVariableCS(&data->conditionVariable, &data->criticalSection, INFINITE);
+		puts("output");
+		if (data->type != OutputThreadData::type_stop)
+		{
+			if (data->type == OutputThreadData::type_writeFile) {
+				DWORD bytesWritten;
+				WriteFile(data->file, (void*)data->buffer, data->byteCount, &bytesWritten, 0);
+			}
+			if (data->type == OutputThreadData::type_setOutputReport) {
+				HidD_SetOutputReport(data->file, (void*)data->buffer, data->byteCount);
+			}
+		}
+	}
+	LeaveCriticalSection(&data->criticalSection);
+	puts("end");
+	return 0;
+}
 
 bool isXboxController(char* deviceName)
 {
 	return strstr(deviceName, "IG_");
 }
 
-void parsePS4Controller(JoystickState* out, BYTE rawData[], DWORD dataSize)
+void updatePS4Controller(JoystickState* out, BYTE rawData[], DWORD byteCount)
 {
-	if (dataSize > 6)
-	{
-		const unsigned char wiredCode = 0x01;
-		const unsigned char wirelessCode = 0x18;
-		unsigned int offset = 0;
-		if (rawData[0]==wirelessCode) {
-			offset = 2;
-			if (rawData[1]==0x40) {
-				return;
-			}
-		}
-		else if (rawData[0]!=wiredCode) {
-			return;
-		}
-		//for (int i=0; i<16; ++i) {
-		//	printf("%2X-", rawData[i]);
-		//}
-		//printf("\n");
+	const DWORD usbInputByteCount = 64;
+	const DWORD bluetoothInputByteCount = 547;
 
-		unsigned char leftStickX   = *(rawData + offset + 1);
-		unsigned char leftStickY   = *(rawData + offset + 2);
-		unsigned char rightStickX  = *(rawData + offset + 3);
-		unsigned char rightStickY  = *(rawData + offset + 4);
-		unsigned char leftTrigger  = *(rawData + offset + 8);
-		unsigned char rightTrigger = *(rawData + offset + 9);
-
-		unsigned char buttons1 = *(rawData + offset + 5);
-		unsigned char buttons2 = *(rawData + offset + 6);
-		unsigned char buttons3 = *(rawData + offset + 7);
-
-		unsigned char squareButton   = 1 & (buttons1 >> 4);
-		unsigned char xButton        = 1 & (buttons1 >> 5);
-		unsigned char circleButton   = 1 & (buttons1 >> 6);
-		unsigned char triangleButton = 1 & (buttons1 >> 7);
-		unsigned char dpad           = 0b1111 & buttons1;
-		unsigned char l1Button       = 1 & (buttons2 >> 0);
-		unsigned char r1Button       = 1 & (buttons2 >> 1);
-		unsigned char shareButton    = 1 & (buttons2 >> 4);
-		unsigned char optionsButton  = 1 & (buttons2 >> 5);
-		unsigned char l3Button       = 1 & (buttons2 >> 6);
-		unsigned char r3Button       = 1 & (buttons2 >> 7);
-		unsigned char psButton       = 1 & (buttons3 >> 0);
-		unsigned char touchPadButton = 1 & (buttons3 >> 1);
-
-		out->currentInputs[PS4InputSquare] = (float)squareButton;
-		out->currentInputs[PS4InputX] = (float)xButton;
-		out->currentInputs[PS4InputCircle] = (float)circleButton;
-		out->currentInputs[PS4InputTriangle] = (float)triangleButton;
-		out->currentInputs[PS4InputL1] = (float)l1Button;
-		out->currentInputs[PS4InputR1] = (float)r1Button;
-		out->currentInputs[PS4InputShare] = (float)shareButton;
-		out->currentInputs[PS4InputOptions] = (float)optionsButton;
-		out->currentInputs[PS4InputL3] = (float)l3Button;
-		out->currentInputs[PS4InputR3] = (float)r3Button;
-		out->currentInputs[PS4InputPS] = (float)psButton;
-		out->currentInputs[PS4InputTouchPadButton]  = (float)touchPadButton;
-		out->currentInputs[PS4InputLeftStickLeft]   = -(leftStickX /255.0f * 2 -1);
-		out->currentInputs[PS4InputLeftStickRight]  =  (leftStickX /255.0f * 2 -1);
-		out->currentInputs[PS4InputLeftStickUp]     = -(leftStickY /255.0f * 2 -1);
-		out->currentInputs[PS4InputLeftStickDown]   =  (leftStickY /255.0f * 2 -1);
-		out->currentInputs[PS4InputRightStickLeft]  = -(rightStickX/255.0f * 2 -1);
-		out->currentInputs[PS4InputRightStickRight] =  (rightStickX/255.0f * 2 -1);
-		out->currentInputs[PS4InputRightStickUp]    = -(rightStickY/255.0f * 2 -1);
-		out->currentInputs[PS4InputRightStickDown]  =  (rightStickY/255.0f * 2 -1);
-		out->currentInputs[PS4InputL2]  = leftTrigger /255.0f;
-		out->currentInputs[PS4InputR2] = rightTrigger/255.0f;
-		out->currentInputs[PS4InputDpadUp]    = (dpad==0 || dpad==1 || dpad==7)? 1.0f : 0.0f;
-		out->currentInputs[PS4InputDpadRight] = (dpad==1 || dpad==2 || dpad==3)? 1.0f : 0.0f; 
-		out->currentInputs[PS4InputDpadDown]  = (dpad==3 || dpad==4 || dpad==5)? 1.0f : 0.0f; 
-		out->currentInputs[PS4InputDpadLeft]  = (dpad==5 || dpad==6 || dpad==7)? 1.0f : 0.0f;
-		out->type = JoystickTypePS4;
+	unsigned int offset = 0;
+	if (byteCount == bluetoothInputByteCount) {
+		offset = 2;
 	}
+	else if (byteCount != usbInputByteCount) {
+		return;
+	}
+
+	unsigned char leftStickX   = *(rawData + offset + 1);
+	unsigned char leftStickY   = *(rawData + offset + 2);
+	unsigned char rightStickX  = *(rawData + offset + 3);
+	unsigned char rightStickY  = *(rawData + offset + 4);
+	unsigned char leftTrigger  = *(rawData + offset + 8);
+	unsigned char rightTrigger = *(rawData + offset + 9);
+
+	unsigned char buttons1 = *(rawData + offset + 5);
+	unsigned char buttons2 = *(rawData + offset + 6);
+	unsigned char buttons3 = *(rawData + offset + 7);
+
+	unsigned char squareButton   = 1 & (buttons1 >> 4);
+	unsigned char xButton        = 1 & (buttons1 >> 5);
+	unsigned char circleButton   = 1 & (buttons1 >> 6);
+	unsigned char triangleButton = 1 & (buttons1 >> 7);
+	unsigned char dpad           = 0b1111 & buttons1;
+	unsigned char l1Button       = 1 & (buttons2 >> 0);
+	unsigned char r1Button       = 1 & (buttons2 >> 1);
+	unsigned char shareButton    = 1 & (buttons2 >> 4);
+	unsigned char optionsButton  = 1 & (buttons2 >> 5);
+	unsigned char l3Button       = 1 & (buttons2 >> 6);
+	unsigned char r3Button       = 1 & (buttons2 >> 7);
+	unsigned char psButton       = 1 & (buttons3 >> 0);
+	unsigned char touchPadButton = 1 & (buttons3 >> 1);
+
+	out->currentInputs[PS4InputSquare] = (float)squareButton;
+	out->currentInputs[PS4InputX] = (float)xButton;
+	out->currentInputs[PS4InputCircle] = (float)circleButton;
+	out->currentInputs[PS4InputTriangle] = (float)triangleButton;
+	out->currentInputs[PS4InputL1] = (float)l1Button;
+	out->currentInputs[PS4InputR1] = (float)r1Button;
+	out->currentInputs[PS4InputShare] = (float)shareButton;
+	out->currentInputs[PS4InputOptions] = (float)optionsButton;
+	out->currentInputs[PS4InputL3] = (float)l3Button;
+	out->currentInputs[PS4InputR3] = (float)r3Button;
+	out->currentInputs[PS4InputPS] = (float)psButton;
+	out->currentInputs[PS4InputTouchPadButton]  = (float)touchPadButton;
+	out->currentInputs[PS4InputLeftStickLeft]   = -(leftStickX /255.0f * 2 -1);
+	out->currentInputs[PS4InputLeftStickRight]  =  (leftStickX /255.0f * 2 -1);
+	out->currentInputs[PS4InputLeftStickUp]     = -(leftStickY /255.0f * 2 -1);
+	out->currentInputs[PS4InputLeftStickDown]   =  (leftStickY /255.0f * 2 -1);
+	out->currentInputs[PS4InputRightStickLeft]  = -(rightStickX/255.0f * 2 -1);
+	out->currentInputs[PS4InputRightStickRight] =  (rightStickX/255.0f * 2 -1);
+	out->currentInputs[PS4InputRightStickUp]    = -(rightStickY/255.0f * 2 -1);
+	out->currentInputs[PS4InputRightStickDown]  =  (rightStickY/255.0f * 2 -1);
+	out->currentInputs[PS4InputL2]  = leftTrigger /255.0f;
+	out->currentInputs[PS4InputR2] = rightTrigger/255.0f;
+	out->currentInputs[PS4InputDpadUp]    = (dpad==0 || dpad==1 || dpad==7)? 1.0f : 0.0f;
+	out->currentInputs[PS4InputDpadRight] = (dpad==1 || dpad==2 || dpad==3)? 1.0f : 0.0f; 
+	out->currentInputs[PS4InputDpadDown]  = (dpad==3 || dpad==4 || dpad==5)? 1.0f : 0.0f; 
+	out->currentInputs[PS4InputDpadLeft]  = (dpad==5 || dpad==6 || dpad==7)? 1.0f : 0.0f;
+	out->type = JoystickTypePS4;
+
+	offset = 0;
+	if (byteCount == usbInputByteCount)
+	{
+		out->outputThreadData->type = OutputThreadData::type_writeFile;
+		out->outputThreadData->byteCount = 32;
+		out->outputThreadData->buffer[0] = 0x05;
+		out->outputThreadData->buffer[1] = 0xFF;
+	}
+	if (byteCount == bluetoothInputByteCount)
+	{
+		out->outputThreadData->type = OutputThreadData::type_setOutputReport;
+		out->outputThreadData->byteCount = 78;
+		out->outputThreadData->buffer[0] = 0x11;
+		out->outputThreadData->buffer[1] = 0XC0;
+		out->outputThreadData->buffer[3] = 0x07;
+		offset = 2;
+	}
+	out->outputThreadData->buffer[4 + offset] = (BYTE)(out->lightRumble*0xFF);
+	out->outputThreadData->buffer[5 + offset] = (BYTE)(out->heavyRumble*0xFF);
+	out->outputThreadData->buffer[6 + offset] = (BYTE)(out->ledRed     *0xFF);
+	out->outputThreadData->buffer[7 + offset] = (BYTE)(out->ledGreen   *0xFF);
+	out->outputThreadData->buffer[8 + offset] = (BYTE)(out->ledBlue    *0xFF);
 }
 
 void parseGenericController(JoystickState* out, BYTE rawData[], DWORD dataSize, _HIDP_PREPARSED_DATA* preparsedData)
@@ -400,35 +458,6 @@ void parseGenericController(JoystickState* out, BYTE rawData[], DWORD dataSize, 
 	out->type = JoystickTypeGeneric;
 }
 
-void printWindowsErrors()
-{
-	LPTSTR errorText = NULL;
-
-	FormatMessage(
-		// use system message tables to retrieve error text
-		FORMAT_MESSAGE_FROM_SYSTEM
-		// allocate buffer on local heap for error text
-		|FORMAT_MESSAGE_ALLOCATE_BUFFER
-		// Important! will fail otherwise, since we're not 
-		// (and CANNOT) pass insertion parameters
-		|FORMAT_MESSAGE_IGNORE_INSERTS,  
-		NULL,    // unused with FORMAT_MESSAGE_FROM_SYSTEM
-		GetLastError(),
-		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-		(LPTSTR)&errorText,  // output 
-		0, // minimum size for output buffer
-		NULL);   // arguments - see note 
-
-	if ( NULL != errorText )
-	{
-		wprintf(L"error:%s ", errorText);
-
-		// release memory allocated by FormatMessage()
-		LocalFree(errorText);
-		errorText = NULL;
-	}
-}
-
 void updateRawInput(Joysticks* joysticks, LPARAM lParam)
 {
 	UINT size = 0;
@@ -450,74 +479,93 @@ void updateRawInput(Joysticks* joysticks, LPARAM lParam)
 
 		if (gotInfo && gotPreparsedData && gotName)
 		{
-			unsigned int joystickIndex = 4;
-			while (joystickIndex<joysticks->count && wcscmp(deviceName, joysticks->states[joystickIndex].deviceName) != 0) {
-				++joystickIndex;
+			for (UINT i=Joysticks::maxXinputControllers; i<joysticks->count; ++i)
+			{
+				if (wcscmp(deviceName, joysticks->states[i].deviceName) == 0)
+				{
+					JoystickState* state = &joysticks->states[i];
+					if (deviceInfo.hid.dwProductId == 2508) {
+						updatePS4Controller(state, input->data.hid.bRawData, input->data.hid.dwSizeHid);
+					}
+					else {
+						parseGenericController(state, input->data.hid.bRawData, input->data.hid.dwSizeHid, data);
+					}
+					free(data);
+				}
 			}
-			if (joystickIndex == joysticks->count) {
-				joysticks->count += 1;
-				joysticks->states = (JoystickState*)realloc(joysticks->states, joysticks->count*sizeof(JoystickState));
-				JoystickState newState = {0};
-				wcscpy_s(newState.deviceName, deviceName);
-				joysticks->states[joystickIndex] = newState;
-			}
-
-			JoystickState* state = &joysticks->states[joystickIndex];
-			if (deviceInfo.hid.dwProductId == 2508) {
-				parsePS4Controller(state, input->data.hid.bRawData, input->data.hid.dwSizeHid);
-				unsigned char output[547] = {0};
-				output[0] = 0x05;
-				output[1] = 0xFF;
-				output[4] = (unsigned char)(state->lightRumble*255);
-				output[5] = (unsigned char)(state->heavyRumble*255);
-				//HANDLE hidDevice = CreateFileW(deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
-				//HidD_SetOutputReport(hidDevice, output, sizeof(output));
-				//printWindowsErrors();
-				//WriteFile(hidDevice, output, sizeof(output), 0, 0);
-			}
-			else {
-				parseGenericController(state, input->data.hid.bRawData, input->data.hid.dwSizeHid, data);
-			}
-			free(data);
 		}
 	}
 	free(input);
 }
 
+void connectHIDJoystick(Joysticks* joysticks, const WCHAR* deviceName)
+{
+	unsigned int joystickIndex = Joysticks::maxXinputControllers;
+	while (joystickIndex < joysticks->count && wcscmp(deviceName, joysticks->states[joystickIndex].deviceName) != 0) {
+		++joystickIndex;
+	}
+	if (joystickIndex == joysticks->count) {
+		joysticks->count += 1;
+		joysticks->states = (JoystickState*)realloc(joysticks->states, joysticks->count*sizeof(JoystickState));
+		JoystickState newState = {0};
+		wcscpy_s(newState.deviceName, deviceName);
+
+		newState.outputThreadData = (OutputThreadData*)calloc(1, sizeof(OutputThreadData));
+		InitializeConditionVariable(&newState.outputThreadData->conditionVariable);
+		InitializeCriticalSection(&newState.outputThreadData->criticalSection);
+
+		HidD_GetProductString(newState.outputThreadData->file, newState.productName, JoystickState::maxNameLength);
+		HidD_GetManufacturerString(newState.outputThreadData->file, newState.manufacturerName, JoystickState::maxNameLength);
+
+		joysticks->states[joystickIndex] = newState;
+	}
+
+	joysticks->states[joystickIndex].outputThreadData->type = OutputThreadData::type_writeFile;
+	joysticks->states[joystickIndex].outputThreadData->file = CreateFileW(deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+	joysticks->states[joystickIndex].outputThreadData->thread = CreateThread(0, 0, (LPTHREAD_START_ROUTINE)outputThread, (LPVOID)joysticks->states[joystickIndex].outputThreadData, 0, 0);
+	joysticks->states[joystickIndex].connected = true;
+}
+
 void enumerateDevices(Joysticks* joysticks)
 {
+	// XInput
+	for (unsigned int playerIndex=0; playerIndex<Joysticks::maxXinputControllers; ++playerIndex) {
+		XINPUT_STATE state;
+		joysticks->states[playerIndex].connected = (XInputGetState(playerIndex, &state) == ERROR_SUCCESS);
+	}
+
+	// Set all HID joysticks to disconnected
+	for (unsigned int i=Joysticks::maxXinputControllers; i<joysticks->count; ++i) {
+		if (joysticks->states[i].connected) {
+			EnterCriticalSection(&joysticks->states[i].outputThreadData->criticalSection);
+			joysticks->states[i].outputThreadData->type = OutputThreadData::type_stop;
+			joysticks->states[i].connected = false;
+			CloseHandle(joysticks->states[i].outputThreadData->file);
+			CloseHandle(joysticks->states[i].outputThreadData->thread);
+			LeaveCriticalSection(&joysticks->states[i].outputThreadData->criticalSection);
+			WakeAllConditionVariable(&joysticks->states[i].outputThreadData->conditionVariable);
+		}
+	}
+
+	// Find all connected joysticks
 	unsigned int deviceCount = 0;
 	GetRawInputDeviceList(0, &deviceCount, sizeof(RAWINPUTDEVICELIST));
 	RAWINPUTDEVICELIST* deviceLists = (RAWINPUTDEVICELIST*)malloc(sizeof(RAWINPUTDEVICELIST) * deviceCount);
 	GetRawInputDeviceList(deviceLists, &deviceCount, sizeof(RAWINPUTDEVICELIST));
-	for (unsigned int i = 0; i < deviceCount; ++i) {
+
+	for (unsigned int i = 0; i < deviceCount; ++i)
+	{
 		RID_DEVICE_INFO deviceInfo;
 		UINT deviceInfoSize = sizeof(deviceInfo);
-		if (GetRawInputDeviceInfo(deviceLists[i].hDevice, RIDI_DEVICEINFO, &deviceInfo, &deviceInfoSize) > 0)
+		bool gotInfo = GetRawInputDeviceInfo(deviceLists[i].hDevice, RIDI_DEVICEINFO, &deviceInfo, &deviceInfoSize) > 0;
+
+		WCHAR deviceName[1024] = {0};
+		UINT deviceNameLength = sizeof(deviceName)/sizeof(*deviceName);
+		bool gotName = GetRawInputDeviceInfoW(deviceLists[i].hDevice, RIDI_DEVICENAME, deviceName, &deviceNameLength) > 0;
+
+		if (gotInfo && gotName && deviceInfo.hid.usUsagePage==0x01 && (deviceInfo.hid.usUsage==0x04 || deviceInfo.hid.usUsage==0x05))
 		{
-			if (deviceInfo.hid.usUsagePage == 1 && (deviceInfo.hid.usUsage==4 || deviceInfo.hid.usUsage==5))
-			{
-				WCHAR deviceName[1024] = {0};
-				UINT deviceNameLength = sizeof(deviceName)/sizeof(*deviceName);
-				if (GetRawInputDeviceInfoW(deviceLists[i].hDevice, RIDI_DEVICENAME, deviceName, &deviceNameLength) > 0)
-				{
-					HANDLE device = CreateFileW(deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
-
-					WCHAR productString[100] = {0};
-					UINT productStringLength = sizeof(productString)/sizeof(*productString);
-					HidD_GetProductString(device, productString, productStringLength);
-
-					WCHAR manufacturerString[100] = {0};
-					UINT manufacturerStringLength = sizeof(manufacturerString)/sizeof(*manufacturerString);
-					HidD_GetManufacturerString(device, manufacturerString, manufacturerStringLength);
-
-					WCHAR serialNumberString[100] = {0};
-					UINT serialNumberStringLength = sizeof(serialNumberString)/sizeof(*serialNumberString);
-					HidD_GetSerialNumberString(device, serialNumberString, serialNumberStringLength);
-
-					wprintf(L"%s | product:%s | manufacturer:%s | serialNumber:%s\n", deviceName, productString, manufacturerString, serialNumberString);
-				}
-			}
+			connectHIDJoystick(joysticks, deviceName);
 		}
 	}
 }
@@ -529,27 +577,7 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
 		updateRawInput(joysticks, lParam);
 	}
 	if (msg == WM_INPUT_DEVICE_CHANGE) {
-		//for (unsigned int playerIndex=0; playerIndex<4; ++playerIndex) {
-		//	XINPUT_STATE state;
-		//	joysticks->states[playerIndex].connected = (XInputGetState(playerIndex, &state) == ERROR_SUCCESS);
-		//}
-		//UINT size = 0;
-		//GetRawInputData((HRAWINPUT)lParam, RID_INPUT, NULL, &size, sizeof(RAWINPUTHEADER));
-		//RAWINPUT* input = (RAWINPUT*)malloc(size);
-		//UINT structsWritten = GetRawInputData((HRAWINPUT)lParam, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER));
-		//if (structsWritten != -1) {
-		//	char deviceName[1024] = {0};
-		//	UINT deviceNameLength = sizeof(deviceName)/sizeof(*deviceName);
-		//	if (GetRawInputDeviceInfoA(input->header.hDevice, RIDI_DEVICENAME, deviceName, &deviceNameLength) > 0)
-		//	{
-		//		for (unsigned int i=4; i<joysticks->count; ++i)
-		//		{
-		//			if (strcmp(joysticks->states[i].deviceName, deviceName) == 0) {
-		//				joysticks->states[i].connected = false;
-		//			}
-		//		}
-		//	}
-		//}
+		enumerateDevices(joysticks);
 	}
 	return DefWindowProc(hwnd, msg, wParam, lParam);
 }
@@ -575,13 +603,11 @@ Joysticks createJoysticks()
 	RegisterRawInputDevices(&rid, 1, sizeof(RAWINPUTDEVICE));
 
 	// Allocate xbox controllers
-	joysticks.count = 4;
+	joysticks.count = Joysticks::maxXinputControllers;
 	joysticks.states = (JoystickState*)calloc(joysticks.count, sizeof(JoystickState));
-	for (unsigned int playerIndex=0; playerIndex<4; ++playerIndex) {
-		joysticks.states[playerIndex].connected = true;
-		joysticks.states[playerIndex].type = JoystickTypeXbox;
-	}
+	for (UINT i=0; i<Joysticks::maxXinputControllers; ++i) joysticks.states[i].type = JoystickTypeXbox;
 
+	enumerateDevices(&joysticks);
 	return joysticks;
 }
 
@@ -599,8 +625,13 @@ void updateJoysticks(Joysticks* joysticks)
 		DispatchMessage(&msg);
 	}
 
+	// Signal output thread
+	for (UINT i=Joysticks::maxXinputControllers; i<joysticks->count; ++i) {
+		WakeConditionVariable(&joysticks->states[i].outputThreadData->conditionVariable);
+	}
+
 	// Xbox controllers
-	for (unsigned int playerIndex=0; playerIndex<4; ++playerIndex)
+	for (unsigned int playerIndex=0; playerIndex<Joysticks::maxXinputControllers; ++playerIndex)
 	{
 		JoystickState* state = &joysticks->states[playerIndex];
 		XINPUT_STATE xinput;
@@ -629,6 +660,11 @@ void updateJoysticks(Joysticks* joysticks)
 			state->currentInputs[XboxInputRightStickRight]     = xinput.Gamepad.sThumbRX / 32767.0f;
 			state->currentInputs[XboxInputRightStickUp]        = xinput.Gamepad.sThumbRY / 32767.0f;
 			state->currentInputs[XboxInputRightStickDown]      =-xinput.Gamepad.sThumbRY / 32767.0f;
+
+			XINPUT_VIBRATION vibration;
+			vibration.wLeftMotorSpeed  = (WORD)(state->lightRumble*0xFFFF);
+			vibration.wRightMotorSpeed = (WORD)(state->heavyRumble*0xFFFF);
+			XInputSetState(playerIndex, &vibration);
 		}
 		else {
 			state->connected = false;
@@ -640,46 +676,6 @@ void updateJoysticks(Joysticks* joysticks)
 		for (unsigned int inputIndex=0; inputIndex<JoystickState::inputCount; ++inputIndex) {
 			float* input = &joysticks->states[joystickIndex].currentInputs[inputIndex];
 			if (*input < 0) *input = 0;
-		}
-	}
-}
-
-void setJoystickForceFeedback(Joysticks* joysticks, unsigned int joystickIndex, float leftForceFeedback, float rightForceFeedback)
-{
-	if (joystickIndex <= 3) {
-		XINPUT_VIBRATION vibration;
-		vibration.wLeftMotorSpeed  = (WORD)(leftForceFeedback*0xFFFF);
-		vibration.wRightMotorSpeed = (WORD)(rightForceFeedback*0xFFFF);
-		XInputSetState(joystickIndex, &vibration);
-	}
-	if (joysticks->states[joystickIndex].type == JoystickTypePS4) {
-		HANDLE hidDevice = CreateFileW(joysticks->states[joystickIndex].deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
-		//HANDLE hidDevice = CreateFileW(joysticks->states[joystickIndex].deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
-		if (hidDevice != INVALID_HANDLE_VALUE) {
-			// USB
-			unsigned char output[32] = {0};
-			output[0] = 0x05;
-			output[1] = 0xFF;
-			output[4] = (unsigned char)(joysticks->states[joystickIndex].lightRumble*255);
-			output[5] = (unsigned char)(joysticks->states[joystickIndex].heavyRumble*255);
-			output[6] = (unsigned char)(joysticks->states[joystickIndex].ledRed*255);
-			output[7] = (unsigned char)(joysticks->states[joystickIndex].ledGreen*255);
-			output[8] = (unsigned char)(joysticks->states[joystickIndex].ledBlue*255);
-			// Bluetooth
-			//unsigned char output[78] = {0};
-			//output[0] = 0x11;
-			//output[1] = 0x80;
-			//output[2] = 0x0f;
-			//output[6] = (unsigned char)(joysticks->states[joystickIndex].lightRumble*255);
-			//output[7] = (unsigned char)(joysticks->states[joystickIndex].heavyRumble*255);
-			//output[8] = (unsigned char)(joysticks->states[joystickIndex].ledRed*255);
-			//output[9] = (unsigned char)(joysticks->states[joystickIndex].ledGreen*255);
-			//output[10] = (unsigned char)(joysticks->states[joystickIndex].ledBlue*255);
-			OVERLAPPED ovelappedInfo = {0};
-			WriteFile(hidDevice, output, sizeof(output), 0, &ovelappedInfo);
-			//HidD_SetOutputReport(hidDevice, output, sizeof(output));
-			//printWindowsErrors();
-			CloseHandle(hidDevice);
 		}
 	}
 }
@@ -698,10 +694,8 @@ const char* getInputName(Joysticks joysticks, unsigned int joystickIndex, unsign
 int main()
 {
 	Joysticks joysticks = createJoysticks();
-	unsigned int frameNumber = 0;
 	while (1)
 	{
-		//printf("frame%d ", frameNumber);
 		updateJoysticks(&joysticks);
 		for (unsigned int joystickIndex=0; joystickIndex<joysticks.count; ++joystickIndex)
 		{
@@ -711,7 +705,7 @@ int main()
 				if (state->currentInputs[inputIndex] > 0.5 && state->previousInputs[inputIndex] <= 0.5f)
 				{
 					const char* inputName = getInputName(joysticks, joystickIndex, inputIndex);
-					printf("%s ", inputName);
+					printf("%s\n", inputName);
 				}
 
 				float rumbleLeft = 0;
@@ -723,12 +717,12 @@ int main()
 				else if (state->type == JoystickTypePS4) {
 					state->heavyRumble = state->currentInputs[PS4InputL2];
 					state->lightRumble = state->currentInputs[PS4InputR2];
+					state->ledRed = (state->currentInputs[PS4InputCircle] || state->currentInputs[PS4InputSquare])? 1.0f : 0.0f;
 					state->ledGreen = state->currentInputs[PS4InputTriangle];
+					state->ledBlue = (state->currentInputs[PS4InputX] || state->currentInputs[PS4InputSquare])? 1.0f : 0.0f;
 				}
-				setJoystickForceFeedback(&joysticks, joystickIndex, rumbleLeft, rumbleRight);
 			}
 		}
-		++frameNumber;
 		Sleep(16);
 	}
 }

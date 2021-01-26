@@ -4,27 +4,106 @@
 #include <hidsdi.h>
 #include <hidpi.h>
 
-// Notes from DS4-windows
-// Do output in its own thread.
-
-void parsePS4Controller(BYTE rawData[], DWORD dataSize)
+struct OutputThreadData
 {
-	unsigned int byteCount = 32;
-	if (dataSize >= byteCount)
+	enum Type {
+		type_writeFile, type_setOutputReport
+	};
+
+	volatile DWORD byteCount;
+	volatile BYTE buffer[128];
+	volatile Type type;
+	WCHAR deviceName[128];
+	CONDITION_VARIABLE conditionVariable;
+	CRITICAL_SECTION criticalSection;
+};
+
+int outputThread(void* param)
+{
+	OutputThreadData* data = (OutputThreadData*)param;
+	EnterCriticalSection(&data->criticalSection);
+	while (1)
 	{
-		for (unsigned int i=0; i<byteCount; ++i) {
-			printf("%02X ", rawData[i]);
+		SleepConditionVariableCS(&data->conditionVariable, &data->criticalSection, INFINITE);
+		HANDLE file = CreateFileW(data->deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+		if (data->type == OutputThreadData::type_writeFile) {
+			DWORD bytesWritten;
+			WriteFile(file, (void*)data->buffer, data->byteCount, &bytesWritten, 0);
 		}
-		printf("\n");
+		if (data->type == OutputThreadData::type_setOutputReport) {
+			HidD_SetOutputReport(file, (void*)data->buffer, data->byteCount);
+		}
+		CloseHandle(file);
 	}
+	LeaveCriticalSection(&data->criticalSection);
+	return 0;
 }
 
-HANDLE device = 0;
-WCHAR productString[100] = {0};
-WCHAR manufacturerString[100] = {0};
-WCHAR serialNumberString[100] = {0};
+void updatePS4Controller(BYTE rawData[], DWORD byteCount, OutputThreadData* outputThreadData)
+{
+	const DWORD usbInputByteCount = 64;
+	const DWORD bluetoothInputByteCount = 547;
 
-void updateRawInput(LPARAM lParam)
+	for (unsigned int i=0; i<byteCount; ++i) {
+		//printf("%02X ", rawData[i]);
+	}
+
+	int offset = 0;
+	if (byteCount == bluetoothInputByteCount) offset = 2;
+
+	BYTE leftStickX   = rawData[offset + 1];
+	BYTE leftStickY   = rawData[offset + 2];
+	BYTE rightStickX  = rawData[offset + 3];
+	BYTE rightStickY  = rawData[offset + 4];
+	BYTE leftTrigger  = rawData[offset + 8];
+	BYTE rightTrigger = rawData[offset + 9];
+	BYTE dpad         = 0b1111 & rawData[offset + 5];
+	printf("DS4 - LX:%3d LY:%3d RX:%3d RY:%3d LT:%3d RT:%3d Dpad:%1d ", leftStickX, leftStickY, rightStickX, rightStickY, leftTrigger, rightTrigger, dpad);
+
+	printf("Buttons: ");
+	if (1 & (rawData[offset + 5] >> 4)) printf("Square ");
+	if (1 & (rawData[offset + 5] >> 5)) printf("X ");
+	if (1 & (rawData[offset + 5] >> 6)) printf("O ");
+	if (1 & (rawData[offset + 5] >> 7)) printf("Triangle ");
+	if (1 & (rawData[offset + 6] >> 0)) printf("L1 ");
+	if (1 & (rawData[offset + 6] >> 1)) printf("R1 ");
+	if (1 & (rawData[offset + 6] >> 2)) printf("L2 ");
+	if (1 & (rawData[offset + 6] >> 3)) printf("R2 ");
+	if (1 & (rawData[offset + 6] >> 4)) printf("Share ");
+	if (1 & (rawData[offset + 6] >> 5)) printf("Options ");
+	if (1 & (rawData[offset + 6] >> 6)) printf("L3 ");
+	if (1 & (rawData[offset + 6] >> 7)) printf("R3 ");
+	if (1 & (rawData[offset + 7] >> 0)) printf("PS ");
+	if (1 & (rawData[offset + 7] >> 1)) printf("TouchPad ");
+	printf("\n");
+
+	// Ouput force-feedback and LED color
+	offset = 0;
+	if (byteCount == usbInputByteCount)
+	{
+		outputThreadData->type = OutputThreadData::type_writeFile;
+		outputThreadData->byteCount = 32;
+		outputThreadData->buffer[0] = 0x05;
+		outputThreadData->buffer[1] = 0xFF;
+	}
+	if (byteCount == bluetoothInputByteCount)
+	{
+		outputThreadData->type = OutputThreadData::type_setOutputReport;
+		outputThreadData->byteCount = 78;
+		outputThreadData->buffer[0] = 0x11;
+		outputThreadData->buffer[1] = 0XC0;
+		outputThreadData->buffer[3] = 0x07;
+		offset = 2;
+	}
+	outputThreadData->buffer[4 + offset] = rightTrigger;
+	outputThreadData->buffer[5 + offset] = leftTrigger;
+	outputThreadData->buffer[6 + offset] = leftStickX;
+	outputThreadData->buffer[7 + offset] = leftStickY;
+	outputThreadData->buffer[8 + offset] = rightStickY;
+	WakeConditionVariable(&outputThreadData->conditionVariable);
+}
+
+void updateRawInput(LPARAM lParam, OutputThreadData* outputThreadData)
 {
 	UINT size = 0;
 	UINT errorCode = GetRawInputData((HRAWINPUT)lParam, RID_INPUT, NULL, &size, sizeof(RAWINPUTHEADER));
@@ -41,63 +120,30 @@ void updateRawInput(LPARAM lParam)
 
 		if (gotInfo && gotName)
 		{
-			if (device == 0) {
-				device = CreateFileW(deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
-			
-				UINT productStringLength = sizeof(productString)/sizeof(*productString);
-				HidD_GetProductString(device, productString, productStringLength);
-			
-				UINT manufacturerStringLength = sizeof(manufacturerString)/sizeof(*manufacturerString);
-				HidD_GetManufacturerString(device, manufacturerString, manufacturerStringLength);
-			
-				UINT serialNumberStringLength = sizeof(serialNumberString)/sizeof(*serialNumberString);
-				HidD_GetSerialNumberString(device, serialNumberString, serialNumberStringLength);
+			if (wcscmp(deviceName, outputThreadData->deviceName) != 0) {
+				EnterCriticalSection(&outputThreadData->criticalSection);
+				wcscpy_s(outputThreadData->deviceName, deviceName);
+				LeaveCriticalSection(&outputThreadData->criticalSection);
 			}
-			
-			//wprintf(L"%s | product:%s | manufacturer:%s | serialNumber:%s | pid:%d | vid:%d | ", deviceName, productString, manufacturerString, serialNumberString, deviceInfo.hid.dwProductId, deviceInfo.hid.dwVendorId);
-			// wired size: 64
-			// wireless size: 547
-			parsePS4Controller(input->data.hid.bRawData, input->data.hid.dwSizeHid);
-
-			// USB
-			if (input->data.hid.dwSizeHid == 64)
-			{
-				unsigned char output[32] = {0};
-				output[0] = 0x05;
-				output[1] = 0xFF;
-				output[4] = 255;
-				output[5] = 0;
-				DWORD written;
-				WriteFile(device, output, sizeof(output), &written, 0);
-			}
-			// Bluetooth
-			if (input->data.hid.dwSizeHid == 547)
-			{
-				unsigned char output[78] = {0};
-				output[0] = 0x11;
-				output[1] = 0XC0;
-				output[3] = 0x07;
-				output[6] = 255;
-				output[7] = 128;
-				HidD_SetOutputReport(device, output, sizeof(output));
-			}
-
+			updatePS4Controller(input->data.hid.bRawData, input->data.hid.dwSizeHid, outputThreadData);
 		}
 	}
 	free(input);
 }
+
 LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+	OutputThreadData* outputThreadData = (OutputThreadData*)GetPropA(hwnd, "userData");
 	if (msg == WM_INPUT) {
-		updateRawInput(lParam);
+		updateRawInput(lParam, outputThreadData);
 	}
 	return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
 int main()
 {
-	// Create a window, as we need a window procedure to recieve raw input
-	WNDCLASSA wnd = { 0 };
+	// Create a window, as we need a window procedure to recieve raw input events
+	WNDCLASSA wnd = {0};
 	wnd.hInstance = GetModuleHandle(0);
 	wnd.lpfnWndProc = WindowProcedure;
 	wnd.lpszClassName = "RawInputEventWindow";
@@ -112,13 +158,19 @@ int main()
 	rid.hwndTarget = hwnd;
 	RegisterRawInputDevices(&rid, 1, sizeof(RAWINPUTDEVICE));
 
-	while (1)
-	{
-		MSG msg;
-		while (GetMessage(&msg, NULL, 0, 0)) {
-			TranslateMessage(&msg);
-			DispatchMessage(&msg);
-		}
+	// Startup output thread
+	OutputThreadData outputThreadData = {0};
+	InitializeConditionVariable(&outputThreadData.conditionVariable);
+	InitializeCriticalSection(&outputThreadData.criticalSection);
+	CreateThread(0, 0, (LPTHREAD_START_ROUTINE)outputThread, (LPVOID)&outputThreadData, 0, 0);
+
+	SetPropA(hwnd, "userData", &outputThreadData);
+	MSG msg;
+	while (GetMessage(&msg, NULL, 0, 0)) {
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
 	}
+
+	return 0;
 }
 
