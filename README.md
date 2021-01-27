@@ -1,6 +1,29 @@
 # Joystick Input Examples
+This guide aims to contain everything you need to know about implementing joystick input in PC games. Prerequisites: familiarity with Windows programming and C-style C++.
 
-This guide assumes you're familiar with Windows programming and C-style C++.
+## Table of Contents
+- [Types of Devices](#types-of-devices)
+	- [HID](#hid)
+	- [XInput](#xinput)
+- [Inputs](#inputs)
+- [Outputs](#outputs)
+- [APIs](#apis)
+	- [Multimedia](#multimedia)
+	- [DirectInput](#directinput)
+	- [RawInput](#rawinput)
+	- [XInput](#xinput)
+	- [Files](#files)
+	- [Libraries](#libraries)
+		- [SDL](#sdl)
+		- [Steam](#steam)
+- [Specialized I/O](#specialized-io)
+	- [Dualshock 4](#dualshock-4)
+- [Button Configuration](#button-configuration)
+	- [Controller Database](#controller-database)
+	- [Calibration](#calibration)
+	- [Cutting Our Losses](#cutting-our-losses)
+- [Detecting Device Changes](#detecting-device-changes)
+- [Displaying Physical Buttons](#displaying-physical-buttons)
 
 ## Types of devices
 
@@ -24,7 +47,7 @@ The basic inputs on joysticks are
 - Values for analog sticks and shoulder triggers. Delivered as signed or unsigned integers. Analog sticks have 2 axes, X and Y, that range from MIN_SHORT to MAX_SHORT, with 0 being centered. Triggers can have the same range, or go from 0 to MAX_SHORT.
 - A POV hat for the d-pad. This can be implemented as bitflags or a integer representing a direction, such as 1 to the north, 2 to north-east, 3 to east, etc. and 0 for being centered.
 
-Joysticks may support non-standard inputs such as touchpads and accelerometers. For HID devices, these are delivered along with standardized data, but are specific to the device and must be reverse-engineered. See [Specialized I/O](#specialized-i/o) for how to access device-specific data.
+Joysticks may support non-standard inputs such as touchpads and accelerometers. For HID devices, these are delivered along with standardized data, but are specific to the device and must be reverse-engineered. See [Specialized I/O](#specialized-io) for how to access device-specific data.
 
 ## Outputs
 Outputs are usually non-standard extensions, such as
@@ -56,7 +79,7 @@ To find available joysticks you'll have to enumerate them through a callback fun
 Device Caps, short for capabilities, contains information about what fetures the device has, such as number of buttons.
 
 ### RawInput
-The first step with RawInput is registering to recieve `WM_INPUT` events. Unlike the other APIs, RawInput uses an event queue to get inputs. This has a distinct advantage of being able to get inputs that may have been missed between frames, such as a button being quickly pressed and released (though most games don't worry about this, and players are unlikely to notice). To register for events, fill out one or more `RAWINPUTDEVICE` structs and pass an array of them to RegisterRawInputDevices(). The structs take the HID usage page and usages of devices for which to receive events, bit flags, and a handle to the window whose window procedure will receive the events. You can use your game window's existing procedure, or create a non-visible window to encapsulate joystick code. The `rawinput` and `combined` examples use a non-visible window to get events in a terminal-based program.
+The first step with RawInput is registering to recieve `WM_INPUT` events. Unlike the other APIs, RawInput uses an event queue to get inputs. This has a distinct advantage of being able to get inputs that may have been missed between frames, such as a button being quickly pressed and released (though most games don't worry about this, it would have to be running well under 30fps for players to notice). To register for events, fill out one or more `RAWINPUTDEVICE` structs and pass an array of them to RegisterRawInputDevices(). The structs take the HID usage page and usages of devices for which to receive events, bit flags, and a handle to the window whose window procedure will receive the events. You can use your game window's existing procedure, or create a non-visible window to encapsulate joystick code. The `rawinput` and `combined` examples use a non-visible window to get events in a terminal-based program.
 
 The `lParam` for a `WM_INPUT` message is a handle to the RawInput data for that event. Each `WM_INPUT` has its own RawInput data, so if it takes longer to process an event than the update frequency of the joystick, the queue can get seriously backed up. Pass the RawInput data handle to GetRawInputData to get the actual input buffer, along with a handle to the RawInput device that can be used to get more information about it.
 
@@ -82,16 +105,16 @@ The most popular joystick libraries are SDL's Joystick and Game Controller inter
 The [Steam API provides joystick support](https://partner.steamgames.com/doc/api/isteaminput) with action mapping, rumble, and LED control, among other features. It's probably best to use this API when shipping your game on Steam for constistent user experience (though you'll still need other options if your game is available elsewhere).
 
 ## Specialized I/O
-In addition to XBox controllers, Playstation 4 and Nintendo Switch controllers are popular for PC games at time of writing. The basic functionality of these controllers is HID compliant and will work with any of the HID APIs, but you'll need specialized code if you want to make use of their non-standard features.
+In addition to XBox controllers, Playstation 4 and Nintendo Switch controllers are popular for PC games at time of writing. The basic functionality of these controllers is HID compliant and will work with any of the HID APIs, but you'll need specialized code if you want to make use of their non-standard features. You can check the product and vendor IDs of a device against a list of known devices to determine the type of controller.
 
-The `specialized` example shows how to implement full support for the Playstation 4 controller. It starts similarly to the `rawinput` example, but instead of passing the raw data to `HidP_Get*` functions, we'll interpret it directly.
+The `specialized` example shows how to implement full support for the Playstation 4 controller. It starts similarly to the `rawinput` example, but instead of passing the raw data to `HidP_Get*` functions, it interprets the data directly.
 
 In addition to specialized parsing of input, we can control LEDs and rumble using `WriteFile` or `HidD_SetOutputReport`. These two functions use slighlty different types of communication on the backend, and you'll need to use the right one for the device. Getting input is fast (around 0.02ms on my machine), but sending output can be slow (up to 10ms on my machine). Therefore each controller will need a dedicated output thread.
 
 ### Dualshock 4
-If WriteFile is used in PS4 bluetooth, it will send packets similar to wired mode, but only containing HID standard data.
+A Playstation 4 controller can be connected by a USB cable or bluetooth. For the most part they use the same, but bluetooth has an extra two bytes at the beginning of input and output reports. While Sony's own website states that Playstation 4 controllers don't support rumble and changing LED color on PC when connected by bluetooth, it is in fact possible, you just have to use the right type of output. Use `WriteFile` for USB and `HidD_SetOutputReport` for bluetooth.
 
-Use the size of the input report to determine if a dualshock 4 is wired or bluetooth. the first byte of a wireless report should be 0x11, but may be different if it was misconfigured by your application or another.
+Use the size of the input report to determine if a dualshock 4 is wired or bluetooth. the first byte of a wireless report should be 0x11, but may be different if it was misconfigured by your application or another. For example, if WriteFile is used for bluetooth, the controller will then send packets similar to wired mode, but only containing standard HID data.
 
 ## Button configuration
 Ideally, players should have full control over how their controller inputs map to game actions with an intuitive interface. Some players will want to play your retro-style game with a super nintendo controller going through a random SNES-to-USB converter they found on ebay. Other players will have physical disabbilities and need to use unusual button mappings or custom-built controllers. Button config is crutial for player experience, but presents numerous complications for developers.
@@ -113,6 +136,9 @@ The one problem with the database approch is that it doesn't work with USB conve
 Somebody at some point made an entry in the SDL database for this device, and mapped it for gamecube controllers. I use it for a PS2 controller, so the mapping is totally wrong and renders some buttons unusable. Still, the database approch will work fantastically well for nearly all of your players.
 
 ### Callibration
+I remember many times hastily plugging a controller into a Gamecube, bumping an analog stick while doing so, causing it to drift. Pushing it to the left made the cursor on character select drift to the right; pushing it up caused drifting downward. This is because the gamecube calibrates the controller when it's plugged in. Whatever the analog stick's current axis values were are now considered the rest position, and all inputs are relative to that. If an axis is calibrated for a negative value being the rest position, the axis' physical neutral will appear to be a positive input. Unplugging and reconnecting the controller—or holding down X, Y, and start—recalibrates it.
+
+A PC game could also use calibration to account for unknown rest positions of axes. By sampling input state and taking it as the rest values when starting button config, a trigger that's `LONG_MIN` at rest would only appear to go in the positive direction (`axisValue = `). The downside is potential player confusion if they were bumping an analog stick when starting button config.
 
 ### Cutting our losses
 Really we can still get decent button config without a database or callibration. Let's imagine a player configuring their Gamecube controller in a press-to-set interface. The want to map the Shoot action to the right shoulder trigger, so they select the action and press down R. The input was negative both this frame and last, so we ignore the initial state. It isn't until the input becomes positive that we create the mapping. After Shoot is Jump, and when the player releases R they accidently map Jump to a negative axis input. They curse, redo that mapping, and move on. So while not perfect, it does support an uncommon controller and lets the user create any mappings they want.
