@@ -1,0 +1,10 @@
+Debug
+Release
+.vs
+tags
+*.user
+*.exe
+*.ilk
+*.obj
+*.pdb
+*.lnk

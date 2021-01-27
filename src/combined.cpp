@@ -216,6 +216,10 @@ enum GenericInputs {
 	GenericInputAxis4Negative,
 	GenericInputAxis5Positive,
 	GenericInputAxis5Negative,
+	GenericInputAxis6Positive,
+	GenericInputAxis6Negative,
+	GenericInputAxis7Positive,
+	GenericInputAxis7Negative,
 	GenericInputHatLeft,
 	GenericInputHatRight,
 	GenericInputHatUp,
@@ -267,6 +271,10 @@ const char* genericInputNames[] = {
 	"Controller-Axis 4-",
 	"Controller-Axis 5+",
 	"Controller-Axis 5-",
+	"Controller-Axis 6+",
+	"Controller-Axis 6-",
+	"Controller-Axis 7+",
+	"Controller-Axis 7-",
 	"Controller-Hat Left",
 	"Controller-Hat Right",
 	"Controller-Hat Up,"
@@ -275,13 +283,11 @@ const char* genericInputNames[] = {
 
 int outputThread(void* param)
 {
-	puts("start");
 	OutputThreadData* data = (OutputThreadData*)param;
 	EnterCriticalSection(&data->criticalSection);
 	while (data->type != OutputThreadData::type_stop)
 	{
 		SleepConditionVariableCS(&data->conditionVariable, &data->criticalSection, INFINITE);
-		puts("output");
 		if (data->type != OutputThreadData::type_stop)
 		{
 			if (data->type == OutputThreadData::type_writeFile) {
@@ -294,7 +300,6 @@ int outputThread(void* param)
 		}
 	}
 	LeaveCriticalSection(&data->criticalSection);
-	puts("end");
 	return 0;
 }
 
@@ -408,37 +413,18 @@ void parseGenericController(JoystickState* out, BYTE rawData[], DWORD dataSize, 
 		NTSTATUS status = HidP_GetUsageValue(HidP_Input, valueCaps[i].UsagePage, 0, valueCaps[i].Range.UsageMin, &value, preparsedData, (PCHAR)rawData, dataSize);
 		float maxValue = (float)(1<<(valueCaps[i].BitSize))-1;
 		float normalizedValue = (value / maxValue)*2-1;
-		switch (valueCaps[i].Range.UsageMin) {
-			case 0x30:
-				out->currentInputs[GenericInputAxis0Positive] = normalizedValue;
-				out->currentInputs[GenericInputAxis0Negative] = -normalizedValue;
-				break;
-			case 0x31:
-				out->currentInputs[GenericInputAxis1Positive] = normalizedValue;
-				out->currentInputs[GenericInputAxis1Negative] = -normalizedValue;
-				break;
-			case 0x32:
-				out->currentInputs[GenericInputAxis2Positive] = normalizedValue;
-				out->currentInputs[GenericInputAxis2Negative] = -normalizedValue;
-				break;
-			case 0x33:
-				out->currentInputs[GenericInputAxis3Positive] = normalizedValue;
-				out->currentInputs[GenericInputAxis3Negative] = -normalizedValue;
-				break;
-			case 0x34:
-				out->currentInputs[GenericInputAxis4Positive] = normalizedValue;
-				out->currentInputs[GenericInputAxis4Negative] = -normalizedValue;
-				break;
-			case 0x35:
-				out->currentInputs[GenericInputAxis5Positive] = normalizedValue;
-				out->currentInputs[GenericInputAxis5Negative] = -normalizedValue;
-				break;
-			case 0x39:
-				LONG hat = value - valueCaps[i].LogicalMin;
-				out->currentInputs[GenericInputHatUp]    = (hat==0 || hat==1 || hat==7)? 1.0f : 0.1f; 
-				out->currentInputs[GenericInputHatRight] = (hat==1 || hat==2 || hat==3)? 1.0f : 0.1f;  
-				out->currentInputs[GenericInputHatDown]  = (hat==3 || hat==4 || hat==5)? 1.0f : 0.1f;  
-				out->currentInputs[GenericInputHatLeft]  = (hat==5 || hat==6 || hat==7)? 1.0f : 0.1f;  
+		unsigned int usage = valueCaps[i].Range.UsageMin;
+		if (usage >= 0x30 && usage <= 0x37) {
+			int axisIndex = usage-0x30;
+			out->currentInputs[GenericInputAxis0Positive+2*axisIndex] = normalizedValue;
+			out->currentInputs[GenericInputAxis0Negative+2*axisIndex] = -normalizedValue;
+		}
+		if (usage == 0x39) {
+			LONG hat = value - valueCaps[i].LogicalMin;
+			out->currentInputs[GenericInputHatUp]    = (hat==0 || hat==1 || hat==7)? 1.0f : 0.1f; 
+			out->currentInputs[GenericInputHatRight] = (hat==1 || hat==2 || hat==3)? 1.0f : 0.1f;  
+			out->currentInputs[GenericInputHatDown]  = (hat==3 || hat==4 || hat==5)? 1.0f : 0.1f;  
+			out->currentInputs[GenericInputHatLeft]  = (hat==5 || hat==6 || hat==7)? 1.0f : 0.1f;  
 		}
 	}
 	free(valueCaps);
