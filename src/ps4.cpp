@@ -3,6 +3,7 @@
 #include <Dbt.h>
 #include <hidsdi.h>
 #include <hidpi.h>
+#include <inttypes.h>
 
 struct OutputThreadData
 {
@@ -60,6 +61,15 @@ void updatePS4Controller(BYTE rawData[], DWORD byteCount, OutputThreadData* outp
 	BYTE dpad         = 0b1111 & rawData[offset + 5];
 	printf("DS4 - LX:%3d LY:%3d RX:%3d RY:%3d LT:%3d RT:%3d Dpad:%1d ", leftStickX, leftStickY, rightStickX, rightStickY, leftTrigger, rightTrigger, dpad);
 
+	BYTE battery = rawData[offset + 15];
+	int16_t gyroX  = *(int8_t*)(rawData + offset + 16);
+	int16_t gyroY  = *(int8_t*)(rawData + offset + 18);
+	int16_t gyroZ  = *(int8_t*)(rawData + offset + 20);
+	int16_t accelX = *(int8_t*)(rawData + offset + 22);
+	int16_t accelY = *(int8_t*)(rawData + offset + 24);
+	int16_t accelZ = *(int8_t*)(rawData + offset + 26);
+	printf("GyroX:%4d GyroY:%4d GyroZ:%4d AccelX:%4d AccelY:%4d AccelZ:%4d ", gyroX, gyroY, gyroZ, accelX, accelY, accelZ);
+
 	printf("Buttons: ");
 	if (1 & (rawData[offset + 5] >> 4)) printf("Square ");
 	if (1 & (rawData[offset + 5] >> 5)) printf("X ");
@@ -103,6 +113,15 @@ void updatePS4Controller(BYTE rawData[], DWORD byteCount, OutputThreadData* outp
 	WakeConditionVariable(&outputThreadData->conditionVariable);
 }
 
+void updateJoyCon(BYTE rawData[], DWORD byteCount)
+{
+	for (DWORD i=0; i<byteCount; ++i)
+	{
+		printf("%2X ", rawData[i]);
+	}
+	printf("\n");
+}
+
 void updateRawInput(LPARAM lParam, OutputThreadData* outputThreadData)
 {
 	UINT size = 0;
@@ -126,6 +145,7 @@ void updateRawInput(LPARAM lParam, OutputThreadData* outputThreadData)
 				LeaveCriticalSection(&outputThreadData->criticalSection);
 			}
 			updatePS4Controller(input->data.hid.bRawData, input->data.hid.dwSizeHid, outputThreadData);
+			//updateJoyCon(input->data.hid.bRawData, input->data.hid.dwSizeHid);
 		}
 	}
 	free(input);

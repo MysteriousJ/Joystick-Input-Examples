@@ -5,24 +5,27 @@ int main()
 {
 	while (1)
 	{
-		JOYINFOEX joy;
-		MMRESULT result = joyGetPosEx(0, &joy);
-		if (result == JOYERR_NOERROR)
+		for (UINT joystickIndex=0; joystickIndex<16; ++joystickIndex)
 		{
-			printf("Axes: ");
-			printf("0:%5d, ", joy.dwXpos);
-			printf("1:%5d, ", joy.dwYpos);
-			printf("2:%5d, ", joy.dwZpos);
-			printf("3:%5d, ", joy.dwRpos);
-			printf("4:%5d, ", joy.dwUpos);
-			printf("5:%5d, ", joy.dwVpos);
-			printf("hat:%5d, ", joy.dwPOV);
-			printf("Buttons: ");
-			for (int i=0; i<32; ++i) {
-				if (joy.dwButtons & (1<<i)) printf("%d ", i);
+			JOYINFOEX joy;
+			MMRESULT result = joyGetPosEx(joystickIndex, &joy);
+			if (result == JOYERR_NOERROR)
+			{
+				printf("Joystick %d ", joystickIndex);
+				printf("X:%5d ", joy.dwXpos);
+				printf("Y:%5d ", joy.dwYpos);
+				printf("Z:%5d ", joy.dwZpos);
+				printf("R:%5d ", joy.dwRpos);
+				printf("U:%5d ", joy.dwUpos);
+				printf("V:%5d ", joy.dwVpos);
+				printf("hat:%5d ", joy.dwPOV);
+				printf("Buttons: ");
+				for (int i=0; i<32; ++i) {
+					if (joy.dwButtons & (1<<i)) printf("%d ", i);
+				}
+				printf("\n");
 			}
 		}
-		printf("\n");
 		Sleep(16);
 	}
 	return 0;

@@ -277,7 +277,7 @@ const char* genericInputNames[] = {
 	"Controller-Axis 7-",
 	"Controller-Hat Left",
 	"Controller-Hat Right",
-	"Controller-Hat Up,"
+	"Controller-Hat Up",
 	"Controller-Hat Down",
 };
 
@@ -436,8 +436,9 @@ void parseGenericController(JoystickState* out, BYTE rawData[], DWORD dataSize, 
 		unsigned int buttonCount = buttonCaps->Range.UsageMax - buttonCaps->Range.UsageMin + 1;
 		USAGE* usages = (USAGE*)malloc(sizeof(USAGE) * buttonCount);
 		HidP_GetUsages(HidP_Input, buttonCaps[i].UsagePage, 0, usages, (PULONG)&buttonCount, preparsedData, (PCHAR)rawData, dataSize);
-		for (unsigned int buttonIndex=0; buttonIndex < buttonCount; ++buttonIndex) {
-			if (usages[buttonIndex] < 32) out->currentInputs[GenericInputButton0+usages[buttonIndex]] = 1.0f;
+		for (unsigned int usagesIndex=0; usagesIndex < buttonCount; ++usagesIndex) {
+			unsigned int buttonIndex = usages[usagesIndex]-1;
+			if (buttonIndex < 32) out->currentInputs[GenericInputButton0+buttonIndex] = 1.0f;
 		}
 		free(usages);
 	}

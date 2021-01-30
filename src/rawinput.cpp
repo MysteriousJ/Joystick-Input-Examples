@@ -7,14 +7,11 @@
 void printRawInputData(LPARAM lParam)
 {
 	UINT size = 0;
-	UINT errorCode = GetRawInputData((HRAWINPUT)lParam, RID_INPUT, NULL, &size, sizeof(RAWINPUTHEADER));
+	GetRawInputData((HRAWINPUT)lParam, RID_INPUT, NULL, &size, sizeof(RAWINPUTHEADER));
 	RAWINPUT* input = (RAWINPUT*)malloc(size);
 	UINT structsWritten = GetRawInputData((HRAWINPUT)lParam, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER));
-	if (structsWritten == -1) {
-		DWORD errorCode = GetLastError();
-		printf("Error code:%d\n", errorCode);
-	}
-	else {
+	if (structsWritten > 0)
+	{
 		GetRawInputDeviceInfo(input->header.hDevice, RIDI_PREPARSEDDATA, 0, &size);
 		_HIDP_PREPARSED_DATA* data = (_HIDP_PREPARSED_DATA*)malloc(size);
 		UINT bytesWritten = GetRawInputDeviceInfo(input->header.hDevice, RIDI_PREPARSEDDATA, data, &size);
@@ -26,7 +23,7 @@ void printRawInputData(LPARAM lParam)
 			printf("Values: ");
 			HIDP_VALUE_CAPS* valueCaps = (HIDP_VALUE_CAPS*)malloc(caps.NumberInputValueCaps * sizeof(HIDP_VALUE_CAPS));
 			HidP_GetValueCaps(HidP_Input, valueCaps, &caps.NumberInputValueCaps, data);
-			for (unsigned int i = 0; i < caps.NumberInputValueCaps; ++i)
+			for (USHORT i = 0; i < caps.NumberInputValueCaps; ++i)
 			{
 				ULONG value;
 				HidP_GetUsageValue(HidP_Input, valueCaps[i].UsagePage, 0, valueCaps[i].Range.UsageMin, &value, data, (PCHAR)input->data.hid.bRawData, input->data.hid.dwSizeHid);
@@ -37,13 +34,13 @@ void printRawInputData(LPARAM lParam)
 			printf("Buttons: ");
 			HIDP_BUTTON_CAPS* buttonCaps = (HIDP_BUTTON_CAPS*)malloc(caps.NumberInputButtonCaps * sizeof(HIDP_BUTTON_CAPS));
 			HidP_GetButtonCaps(HidP_Input, buttonCaps, &caps.NumberInputButtonCaps, data);
-			for (unsigned int i = 0; i < caps.NumberInputButtonCaps; ++i)
+			for (USHORT i = 0; i < caps.NumberInputButtonCaps; ++i)
 			{
-				unsigned int buttonCount = buttonCaps->Range.UsageMax - buttonCaps->Range.UsageMin + 1;
-				USAGE* usages = (USAGE*)malloc(sizeof(USAGE) * buttonCount);
-				HidP_GetUsages(HidP_Input, buttonCaps[i].UsagePage, 0, usages, (PULONG)&buttonCount, data, (PCHAR)input->data.hid.bRawData, input->data.hid.dwSizeHid);
-				for (unsigned int buttonIndex=0; buttonIndex < buttonCount; ++buttonIndex) {
-					printf("%d ", usages[buttonIndex]);
+				ULONG usageCount = buttonCaps->Range.UsageMax - buttonCaps->Range.UsageMin + 1;
+				USAGE* usages = (USAGE*)malloc(sizeof(USAGE) * usageCount);
+				HidP_GetUsages(HidP_Input, buttonCaps[i].UsagePage, 0, usages, &usageCount, data, (PCHAR)input->data.hid.bRawData, input->data.hid.dwSizeHid);
+				for (ULONG usageIndex=0; usageIndex < usageCount; ++usageIndex) {
+					printf("%d ", usages[usageIndex]);
 				}
 				free(usages);
 			}
@@ -95,5 +92,6 @@ int main()
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
 	}
-}
 
+	return 0;
+}

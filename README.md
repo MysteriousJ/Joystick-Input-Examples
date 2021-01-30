@@ -1,5 +1,7 @@
 # Joystick Input Examples
-This guide aims to contain everything you need to know about implementing joystick input in PC games. Prerequisites: familiarity with Windows programming and C-style C++.
+This guide aims to provide everything you need to know about implementing joystick input in PC games. Prerequisites: familiarity with Windows programming and C-style C++.
+
+Special thanks to Handmade Network for fostering a community that values exploring details, as well as Martins for sharing his limitless knowledge.
 
 ## Table of Contents
 - [Types of Devices](#types-of-devices)
@@ -28,12 +30,12 @@ This guide aims to contain everything you need to know about implementing joysti
 ## Types of devices
 
 ### HID
-Standing for Human Interface Device, HID is a standardized communication protocol for USB devices a user directly interacts with, covering anything from keyboards to treadmills. An HID `usage page` is a number describing the purpose of the device, and `usages` are further subcategories. Modern game controllers use HID usage page 0x01 with usage 0x04 or 0x05, and Windows has several APIs for working with them. You can read the [official usage table from usb.org](https://usb.org/sites/default/files/hut1_21_0.pdf), or [this more concise reference](http://www.freebsddiary.org/APC/usb_hid_usages.php).
+Standing for Human Interface Device, HID is a standardized communication protocol for USB devices a user directly interacts with, covering anything from keyboards to treadmills. An HID `usage page` is a number describing the purpose of the device, and `usages` are further subcategories. Modern game controllers use HID usage page 1 (generic desktop) with usage 0x04 (Joystick) or 0x05 (Game pad), and Windows has several APIs for working with them. You can read the [official usage table from usb.org](https://usb.org/sites/default/files/hut1_21_0.pdf), or [this more concise reference](http://www.freebsddiary.org/APC/usb_hid_usages.php).
 
 HID refers to the standard protocol, physical devices (the gamepad in your hands), and virtual devices. Games interface with the virtual device while a driver handles communicating those bytes to the physical one. I'll be redundantly referring to game controllers as HID devices.
 
 ### XInput
-The only controllers you're likely to find that don't use HID are Mirosoft's own XBox controllers. These use a custom communication protocol, and Microsoft introduced a new API to work with them. We'll refer to the driver, the API, and the protocol as XInput. It supports up to 4 controllers at a time, with a light on the controller indicating the player index.
+The only controllers you're likely to find that don't use HID are Microsoft's own XBox controllers. These use a custom communication protocol, and Microsoft introduced a new API to work with them. We'll refer to the driver, the API, and the protocol as XInput. It supports up to 4 controllers at a time, with a light on the controller indicating the player index.
 
 The XInput API is one of the simplest APIs Microsoft has ever made and is extremely easy to use, but it only works with XBox controllers. This is nice for indie developers as XBox controllers are a small, consistent subset of the wide world of USB game controllers, and doing XBox support well is significantly easier than supporting all possible controllers. The downside is alienating players who only have a PS4 controller, or some other controller that uses HID.
 
@@ -46,6 +48,8 @@ The basic inputs on joysticks are
 - Buttons, delivered as bitflags.
 - Values for analog sticks and shoulder triggers axes, delivered as signed or unsigned integers. Analog sticks have 2 axes and triggers have one.
 - A POV hat for the d-pad. This can be implemented as bitflags or an integer representing a direction, such as 1 to the north, 2 to north-east, 3 to east, etc. and 0 for being centered.
+
+Just like how HID devices are described by a usage page and usage, each input on an HID device is also described by a usage page and usage. The standard usages for values are X, Y, Z, Rx, Ry, Rz, Dial, Slider (usages 0x30-0x37 on usage page 1), and Hat Switch (0x39). The only consistant ones are X and Y for the left analog stick, and Hat Switch for Dpad; the rest are arbitrary and their names don't have much practical meaning these days. Buttons are on usage page 9 with each button getting its own usage, starting at 0x01. Subtract 1 from the usage and you'll have the corresponding button index in most APIs.
 
 Joysticks may support non-standard inputs such as touchpads and accelerometers. For HID devices, these are delivered along with standardized data, but are specific to the device and must be reverse-engineered. See [Specialized I/O](#specialized-io) for how to access device-specific data.
 
@@ -65,16 +69,18 @@ We'll do a brief overview of each API. The `src` folder contains small example p
 ### Multimedia
 Multimedia Joystick is the simplest HID API for Windows. The `Ex` version of the functions and structs support up to 16 controllers at a time, each with up to 32 buttons, 6 axes, and a hat.
 
-Getting the joystick state is one function call to `joyGetPosEx`, which takes a device index and a struct to fill with data. [Documentation for this function](https://docs.microsoft.com/en-us/windows/win32/api/joystickapi/nf-joystickapi-joygetposex) states the device index starts at zero, but on my Windows 10 machine it starts at 1.
+Getting the joystick state is one function call to `joyGetPosEx`, which takes a device index and a struct to fill with data. The device index ranges 0-15, and a joystick can be assigned any index, even if it's the only one connected at the time. You'll have to check all of the indices to find which are in use.
 
-Multimedia's functionality is quite limited. It doesn't give you any handles to hardware, so you can't tell what's an Xbox controller to use XInput instead. It also doesn't have any force feedback support.
+Multimedia's functionality is quite limited. It doesn't give you any handles to hardware, so you can't tell what's an Xbox controller to use XInput instead. It also doesn't have any force feedback support, and is missing two axes (dial and slider) that are used by some controllers.
 
 ### DirectInput
 DirectInput is lower level and gives a bit more control. It uses a COM interface, so you'll be creating an object that's used to create other objects. First create a DirectInput object with `DirectInput8Create()`. You can use `IDirectInput*` or `IDirectInput8*`; the `8` versions give access to full features, though those features are not used in the `directinput` example.
 
-To find available joysticks you'll have to enumerate them through a callback function. DirectInput will invoke this function once for each joystick plugged in to your machine.
+To find available joysticks you'll have to enumerate them through a callback function. DirectInput will invoke this function once for each joystick plugged into your machine.
 
 [MSDN provides a function](https://docs.microsoft.com/en-us/windows/win32/xinput/xinput-and-directinput) to check if a device is an XBox controller while enumerating HID devices. It searches through all devices on the system to see if they have "IG_" in the device name. If it does, it compares the product and vendor IDs to the direct input device passed into the function, and, if they match, returns that the device is an XBox controller.
+
+One you've accuired devices, you can call `GetDeviceState` on them to fill a [DIJOYSTATE struct](https://docs.microsoft.com/en-us/previous-versions/windows/desktop/ee416627(v=vs.85)) with the current state of inputs on the controller. The value members of the struct have names corresponding to their HID usages, except for Dial, which is combined with Slider in an array of two elements.
 
 Device Caps, short for capabilities, contains information about what features the device has, such as number of buttons.
 
@@ -83,24 +89,25 @@ The first step with RawInput is registering to receive `WM_INPUT` events. Unlike
 
 The `lParam` for a `WM_INPUT` message is a handle to the RawInput data for that event. Each `WM_INPUT` has its own RawInput data, so if it takes longer to process an event than the update frequency of the joystick, the queue can get seriously backed up. Pass the RawInput data handle to GetRawInputData to get the actual input buffer, along with a handle to the RawInput device that can be used to get more information about it.
 
-[Preparsed Data](https://docs.microsoft.com/en-us/windows-hardware/drivers/hid/preparsed-data) describes what kind of data is in the input buffer. We can pass the preparsed data along with the input buffer to the `HidP_*` set of functions to extract analog and digital values.
-
-The `rawinput` example prints out all available analog values, while the `combined` example looks at usages to determine which values correspond to analog sticks and triggers on a typical HID joystick. Just like how the devices we're interested in are described by a "Joystick" (0x04) or "Game pad" (0x05) usage, each input on the device is also described by a usage. DirectInput uses X, Y, Z, Rx, Ry, Rz, Dial, and Slider (0x30-0x37), as you can see in its [DIJOYSTATE struct](https://docs.microsoft.com/en-us/previous-versions/windows/desktop/ee416627(v=vs.85)).
+[Preparsed Data](https://docs.microsoft.com/en-us/windows-hardware/drivers/hid/preparsed-data) describes what kind of data is in the input buffer. We can pass the preparsed data along with the input buffer to the `HidP_*` set of functions to extract analog and digital values. The `rawinput` example prints out all available analog values, while the `combined` example looks at usages to determine which values correspond to analog sticks and triggers on a typical HID joystick.
 
 The [documentation for all this on MSDN](https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/_hid/) is pretty sparse and hard to understand. Open up hidpi.h for much better explanations. But I'm still not sure how the buttons and values are technically supposed to be parsed. There's a lot of strange nuance, like the return value of `HidP_GetUsageValue` is unsigned, but `LogicalMin` and `LogicalMax` of the value cap is signed. My XBox controller, through HID, says logical min is 0 and logical max is -1. I'm guessing that these were reinterpreted and sign extended from a smaller unsigned type. For the combined example, I assumed the value range is `[0, (2^bitsize)-1]`, but I don't know if this is true for all controllers.
 
 ### XInput
 XInput is a simple API similar to multimedia joystick. It only works with XBox controllers, but makes getting controller state and setting rumble nice and easy.
 
-XInputGetState() has been known to cause a several millisecond hang when trying to access non existant devices, for example, asking for player 2 input when only one controller is plugged in. You'll probably want to query which controller indices are available once, and only get regular updates from devices you know are connected. See the [Detecting Device Changes](#detecting-device-changes) section for more details.
+XInputGetState() has been known to cause a several millisecond hang when trying to access non existent devices, for example, asking for player 2 input when only one controller is plugged in. You'll probably want to query which controller indices are available once, and only get regular updates from devices you know are connected. See the [Detecting Device Changes](#detecting-device-changes) section for more details.
 
 ### Files
-You can interact with a device by opening it with `CreateFile()`. This gives you maximum control over the device; you just have to know what bytes to use. It's straightforward way to communicate with popular devices that are worth your time to hard code. [Read Jan Axelson's "HIDs up" article](https://www.embedded.com/hids-up/) for an introduction to low-level HID I/O. For XBox controllers, [MMozeiko has an excellent example program](https://gist.github.com/mmozeiko/b8ccc54037a5eaf35432396feabbe435) that uses file I/O instead of the XInput API, and [Dave Midison has a great walkthrough of using Wireshark](https://www.partsnotincluded.com/understanding-the-xbox-360-wired-controllers-usb-data/) to reverse engineer the data needed.
+You can interact with a device by opening it with `CreateFile()`. This gives you maximum control over the device; you just have to know what bytes to use. It's a straightforward way to communicate with popular devices that are worth your time to hard code. [Read Jan Axelson's "HIDs up" article](https://www.embedded.com/hids-up/) for an introduction to low-level HID I/O. For XBox controllers, [MMozeiko has an excellent example program](https://gist.github.com/mmozeiko/b8ccc54037a5eaf35432396feabbe435) that uses file I/O instead of the XInput API, and [Dave Midison has a great walkthrough of using Wireshark](https://www.partsnotincluded.com/understanding-the-xbox-360-wired-controllers-usb-data/) to reverse engineer the data needed.
 
 ### Libraries
 
 #### SDL
 The most popular joystick libraries are SDL's Joystick and Game Controller interfaces. Joystick provides generic button, axis, and hat data. Game Controller refers to inputs in terms of an xbox controller, giving uniform semantics to all kinds of controllers (see [Controller Database section](#controller-database)).
+
+SDL has a separate interface for force feedback. The `Effect` functions are similar to DirectInput's effects. The `Rumble` functions work with XBox controllers, but don't allow configuring the two motors individually.
+
 #### Steam
 The [Steam API provides joystick support](https://partner.steamgames.com/doc/api/isteaminput) with action mapping, rumble, and LED control, among other features. It's probably best to use this API when shipping your game on Steam for consistent user experience (though you'll still need other options if your game is available elsewhere).
 
@@ -109,19 +116,23 @@ In addition to XBox controllers, Playstation 4 and Nintendo Switch controllers a
 
 The `specialized` example shows how to implement full support for Playstation 4 controllers. It starts similarly to the `rawinput` example, but instead of passing raw data to `HidP_Get*` functions, it interprets the data directly.
 
+SetOutputReport is synchronous, WriteFile is asynchronous.
+
 In addition to specialized parsing of input, we can control LEDs and rumble using `WriteFile` or `HidD_SetOutputReport`. These two functions use slightly different types of communication on the backend, and you'll need to use the right one for the device. Getting input is fast (around 0.02ms on my machine), but sending output can be slow (up to 10ms on my machine). Therefore each controller will need a dedicated output thread.
 
 ### Dualshock 4
 A Playstation 4 controller can be connected by a USB cable or bluetooth. For the most part they use the same data, but bluetooth has an extra two bytes at the beginning of input and output reports. While [Playstations's own website](https://www.playstation.com/en-us/support/hardware/ps4-pair-dualshock-4-wireless-with-pc-or-mac/) states that Dualshock 4 controllers don't support rumble and changing LED color on PC when connected by bluetooth, it is in fact possible, you just have to use the right type of output. Use `WriteFile` for USB and `HidD_SetOutputReport` for bluetooth.
 
-Use the size of the input report to determine if a dualshock 4 is wired or bluetooth. the first byte of a wireless report should be 0x11, but may be different if it was misconfigured by your application or another. For example, if WriteFile is used for bluetooth, the controller will then send packets similar to wired mode, but only containing standard HID data.
+Use the size of the input report to determine if a dualshock 4 is wired or bluetooth. The first byte of a wireless report should be 0x11, but may be different if it was misconfigured by your application or another. For example, if WriteFile is used for bluetooth, the controller will then send packets similar to wired mode, but only containing standard HID data.
+
+HidD_SetOutputReport uses a Set report/output HID transaction. WriteFile uses a Data/output HID transaction.
 
 ## Button configuration
 Ideally, players should have full control over how their controller inputs map to game actions through an intuitive interface. Some players will want to play your retro-style game with a Super Nintendo controller going through a random SNES-to-USB converter they found on ebay. Other players have physical disabilities and need to use unusual button mappings or custom-built controllers. Button config is crucial for player experience, but presents numerous complications for developers.
 
-The gold-standard for button config is press-to-set. The player selects a game action, then presses the corresponding button to map it. Even better is if the next action is automatically selected, so the player can quickly map all the buttons in a row. Directional inputs can configurable as well by separating an analog stick into -x, +x, -y, and +y. So to do full button config you need to iterate through all inputs on the controller: check if a button is pressed, if an axis passed a threshold, or if the hat is not centered. The `Combined` example puts all inputs into an array of floats, each in the range `[0,1]` (buttons and cardinal hat directions are 0 or 1 while analog inputs can be in between). This makes button config code simple as the inputs are generic.
+The gold-standard for button config is press-to-set. The player selects a game action, then presses the corresponding button to map it. Even better is if the next action is automatically selected, so the player can quickly map all the buttons in a row. Directional inputs can be configured as well by separating an analog stick into -x, +x, -y, and +y. So to do full button config you need to iterate through all inputs on the controller: check if a button is pressed, if an axis passed a threshold, or if the hat is not centered. The `Combined` example puts all inputs into an array of floats, each in the range `[0,1]` (buttons and cardinal hat directions are 0 or 1 while analog inputs can be in between). This makes button config code simple as the inputs are generic.
 
-The first problem with this kind of button config is that axes are not always centered at rest. Shoulder triggers on XBox controllers are 0 at rest, 255 when fully pressed. If these were mapped to HID just like any other axis, it would appear to a game that those axes are always being pushed in the negative direction. This is [Microsoft's rationale](https://docs.microsoft.com/en-us/windows/win32/xinput/xinput-and-directinput) for mapping both triggers to the same axis for HID. The correct implementation would have been to map them to separate axes that are 0 at rest, and forget about the negative range, but we're stuck with this decision. If you want to support as many controllers as possible, you have to deal with this anyway: PS4 and Gamecube controllers, for example, report the shoudler triggers as negative at rest.
+The first problem with this kind of button config is that axes are not always centered at rest. Shoulder triggers on XBox controllers are 0 at rest, 255 when fully pressed. If these were mapped to HID just like any other axis, it would appear to a game that those axes are always being pushed in the negative direction. This is [Microsoft's rationale](https://docs.microsoft.com/en-us/windows/win32/xinput/xinput-and-directinput) for mapping both triggers to the same axis for HID. The correct implementation would have been to map them to separate axes that are 0 at rest, and forget about the negative range, but we're stuck with this decision. If you want to support as many controllers as possible, you have to deal with this anyway: PS4 and Gamecube controllers, for example, report the shoulder triggers as negative at rest.
 
 PS4 controllers have another problem: R2 and L2 report both a button and an axis. This could lead to the being mistakenly mapped to two actions, or the button being mapped where an analog value is wanted. The `Combined` example throws out the button to avoid this problem, as well as mapping PS4 and XBox shoulder triggers to a `[0,1]` range.
 
@@ -141,7 +152,7 @@ I remember many times hastily plugging a controller into a Gamecube, bumping an 
 A PC game could also use calibration to account for unknown rest positions of axes. By sampling input state and taking it as the rest values when starting button config, a trigger that's `LONG_MIN` at rest would only appear to go in the positive direction. The downside is potential player confusion if they were bumping an analog stick when starting button config.
 
 ### Cutting our losses
-Really, we can still get decent button config without a database or calibration. Let's imagine a player configuring their Gamecube controller in a press-to-set interface. They want to map the Shoot action to the right shoulder trigger, so they select the action and press down R. The input was negative both this frame and last, so we ignore the initial state. It isn't until the input becomes positive that we create the mapping. After Shoot is Jump, and when the player releases R they accidently map Jump to a negative axis input. They curse, redo that mapping, and move on. So while not perfect, it does support an uncommon controller and lets the user create any mappings they want.
+Really, we can still get decent button config without a database or calibration. Let's imagine a player configuring their Gamecube controller in a press-to-set interface. They want to map the Shoot action to the right shoulder trigger, so they select the action and press down R. The input was negative both this frame and last, so we ignore the initial state. It isn't until the input becomes positive that we create the mapping. After Shoot is Jump, and when the player releases R they accidentally map Jump to a negative axis input. They curse, redo that mapping, and move on. So while not perfect, it does support an uncommon controller and lets the user create any mappings they want.
 
 ## Detecting Device Changes
 Players may not have all their controllers connected when they launch your game. A surprising number of PC games enumerate controllers only when they start, requiring a full restart of the program to detect any devices that were plugged in while the game was running.
@@ -162,4 +173,4 @@ A multiplayer game could have several controllers plugged in and removed frequen
 ## Displaying Physical Buttons
 Console games have long displayed icons instead of words to tell players which button to press. Modern PC games are also using button icons, a.k.a. glyphs, in their displayed text for popular controllers. Steam provides a set of glyphs for games to use that's accessible [through their API](https://partner.steamgames.com/doc/api/isteaminput#GetGlyphForActionOrigin). Games like *Hades* have their own set of glyphs to match the game's aesthetic.
 
-Strings displayed to the user will need to encode logical games actions for which a glyph will be displayed; for example, `"Press [action:jump] to jump!"`. Before displaying the string, ask the button configuration which physical button maps to that action, and use that as a key to look up the glyph. The `combined` example has unique strings for each physical button that could be used as keys in a glyph table.
+Strings displayed to the user will need to encode logical game actions for which a glyph will be displayed; for example, `"Press [action:jump] to jump!"`. Before displaying the string, ask the button configuration which physical button maps to that action, and use that as a key to look up the glyph. The `combined` example has unique strings for each physical button that could be used as keys in a glyph table.
