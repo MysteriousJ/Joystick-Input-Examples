@@ -5,42 +5,28 @@
 #include <hidpi.h>
 #include <inttypes.h>
 
-struct OutputThreadData
+struct OutputData
 {
-	enum Type {
-		type_writeFile, type_setOutputReport
-	};
-
-	volatile DWORD byteCount;
-	volatile BYTE buffer[128];
-	volatile Type type;
-	WCHAR deviceName[128];
-	CONDITION_VARIABLE conditionVariable;
-	CRITICAL_SECTION criticalSection;
+	BYTE buffer[128];
+	HANDLE file;
+	OVERLAPPED overlapped;
 };
 
-int outputThread(void* param)
+static DWORD ps_crc32(const BYTE* data, DWORD size, DWORD initial)
 {
-	OutputThreadData* data = (OutputThreadData*)param;
-	EnterCriticalSection(&data->criticalSection);
-	while (1)
+	DWORD r = ~initial;
+	for (DWORD i=0; i<size; i++)
 	{
-		SleepConditionVariableCS(&data->conditionVariable, &data->criticalSection, INFINITE);
-		HANDLE file = CreateFileW(data->deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
-		if (data->type == OutputThreadData::type_writeFile) {
-			DWORD bytesWritten;
-			WriteFile(file, (void*)data->buffer, data->byteCount, &bytesWritten, 0);
+		r ^= *data++;
+		for (int i = 0; i < 8; i++)
+		{
+			r = (r >> 1) ^ (r & 1 ? 0xedb88320 : 0);
 		}
-		if (data->type == OutputThreadData::type_setOutputReport) {
-			HidD_SetOutputReport(file, (void*)data->buffer, data->byteCount);
-		}
-		CloseHandle(file);
 	}
-	LeaveCriticalSection(&data->criticalSection);
-	return 0;
+	return ~r;
 }
 
-void updatePS4Controller(BYTE rawData[], DWORD byteCount, OutputThreadData* outputThreadData)
+void updatePS4Controller(BYTE rawData[], DWORD byteCount, WCHAR* deviceName, OutputData* outputData)
 {
 	const DWORD usbInputByteCount = 64;
 	const DWORD bluetoothInputByteCount = 547;
@@ -61,14 +47,16 @@ void updatePS4Controller(BYTE rawData[], DWORD byteCount, OutputThreadData* outp
 	BYTE dpad         = 0b1111 & rawData[offset + 5];
 	printf("DS4 - LX:%3d LY:%3d RX:%3d RY:%3d LT:%3d RT:%3d Dpad:%1d ", leftStickX, leftStickY, rightStickX, rightStickY, leftTrigger, rightTrigger, dpad);
 
-	BYTE battery = rawData[offset + 15];
-	int16_t gyroX  = *(int8_t*)(rawData + offset + 16);
-	int16_t gyroY  = *(int8_t*)(rawData + offset + 18);
-	int16_t gyroZ  = *(int8_t*)(rawData + offset + 20);
-	int16_t accelX = *(int8_t*)(rawData + offset + 22);
-	int16_t accelY = *(int8_t*)(rawData + offset + 24);
-	int16_t accelZ = *(int8_t*)(rawData + offset + 26);
-	printf("GyroX:%4d GyroY:%4d GyroZ:%4d AccelX:%4d AccelY:%4d AccelZ:%4d ", gyroX, gyroY, gyroZ, accelX, accelY, accelZ);
+	BYTE battery = rawData[offset + 12];
+	int16_t gyroX  = rawData[offset + 13] | (rawData[offset + 14] << 8);
+	int16_t gyroY  = *(int8_t*)(rawData + offset + 15);
+	int16_t gyroZ  = *(int8_t*)(rawData + offset + 27);
+	int16_t accelX = rawData[offset + 19] | (rawData[offset + 20] << 8);
+	int16_t accelY = *(int8_t*)(rawData + offset + 21);
+	int16_t accelZ = *(int8_t*)(rawData + offset + 23);
+	int16_t touch1X = ((rawData[offset + 37] & 0x0F) << 8) | rawData[offset + 36];
+	int16_t touch1Y = ((rawData[offset + 37]) >> 4) | (rawData[offset + 38] << 4);
+	printf("Battery:%3d GyroX:%4d GyroY:%4d GyroZ:%4d AccelX:% 6d AccelY:%4d AccelZ:%4d Touch1X:%4d Touch1Y:%4d", battery, gyroX, gyroY, gyroZ, accelX, accelY, accelZ, touch1X, touch1Y);
 
 	printf("Buttons: ");
 	if (1 & (rawData[offset + 5] >> 4)) printf("Square ");
@@ -89,28 +77,61 @@ void updatePS4Controller(BYTE rawData[], DWORD byteCount, OutputThreadData* outp
 
 	// Ouput force-feedback and LED color
 	offset = 0;
+	int headerSize = 0;
+	int outputByteCount = 0;
 	if (byteCount == usbInputByteCount)
 	{
-		outputThreadData->type = OutputThreadData::type_writeFile;
-		outputThreadData->byteCount = 32;
-		outputThreadData->buffer[0] = 0x05;
-		outputThreadData->buffer[1] = 0xFF;
+		outputByteCount = 32;
+		outputData->buffer[0] = 0x05;
+		outputData->buffer[1] = 0xFF;
 	}
 	if (byteCount == bluetoothInputByteCount)
 	{
-		outputThreadData->type = OutputThreadData::type_setOutputReport;
-		outputThreadData->byteCount = 78;
-		outputThreadData->buffer[0] = 0x11;
-		outputThreadData->buffer[1] = 0XC0;
-		outputThreadData->buffer[3] = 0x07;
+		outputByteCount = 78;
+		outputData->buffer[0] = 0xA2; // Header - Bluetooth HID report type: data/output
+		outputData->buffer[1] = 0x11;
+		outputData->buffer[2] = 0XC0;
+		outputData->buffer[4] = 0x07;
 		offset = 2;
+		headerSize = 1;
 	}
-	outputThreadData->buffer[4 + offset] = rightTrigger;
-	outputThreadData->buffer[5 + offset] = leftTrigger;
-	outputThreadData->buffer[6 + offset] = leftStickX;
-	outputThreadData->buffer[7 + offset] = leftStickY;
-	outputThreadData->buffer[8 + offset] = rightStickY;
-	WakeConditionVariable(&outputThreadData->conditionVariable);
+	outputData->buffer[4 + offset + headerSize] = rightTrigger;
+	outputData->buffer[5 + offset + headerSize] = leftTrigger;
+	outputData->buffer[6 + offset + headerSize] = leftStickX;
+	outputData->buffer[7 + offset + headerSize] = leftStickY;
+	outputData->buffer[8 + offset + headerSize] = rightStickY;
+
+	if (byteCount == bluetoothInputByteCount)
+	{
+		DWORD crc = ps_crc32((BYTE*)outputData->buffer, 75, 0);
+		CopyMemory((BYTE*)outputData->buffer+75, &crc, sizeof(crc));
+
+		//uint32_t polynomial = 0x04C11DB7;
+		//uint32_t crc = -1;
+		//for (uint32_t byteIndex=74; byteIndex<75; --byteIndex)
+		//{
+		//	crc ^= outputData->buffer[byteIndex] << 24;
+		//	for (uint32_t i=0; i<8; ++i)
+		//	{
+		//		if (crc & 0x80000000) crc = (crc<<1)^polynomial;
+		//		else crc <<= 1;
+		//	}
+		//}
+		//crc = ~crc;
+		//CopyMemory((BYTE*)outputData->buffer+75, &crc, sizeof(crc));
+	}
+
+	DWORD bytesTransferred;
+	bool finishedLastOutput = GetOverlappedResult(outputData->file, &outputData->overlapped, &bytesTransferred, false);
+	if (finishedLastOutput)
+	{
+		if (outputData->file) CloseHandle(outputData->file);
+		outputData->file = CreateFileW(deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+		if (outputData->file != INVALID_HANDLE_VALUE)
+		{
+			WriteFile(outputData->file, (void*)(outputData->buffer+headerSize), outputByteCount, 0, &outputData->overlapped);
+		}
+	}
 }
 
 void updateJoyCon(BYTE rawData[], DWORD byteCount)
@@ -122,7 +143,7 @@ void updateJoyCon(BYTE rawData[], DWORD byteCount)
 	printf("\n");
 }
 
-void updateRawInput(LPARAM lParam, OutputThreadData* outputThreadData)
+void updateRawInput(LPARAM lParam, OutputData* outputData)
 {
 	UINT size = 0;
 	UINT errorCode = GetRawInputData((HRAWINPUT)lParam, RID_INPUT, NULL, &size, sizeof(RAWINPUTHEADER));
@@ -139,12 +160,7 @@ void updateRawInput(LPARAM lParam, OutputThreadData* outputThreadData)
 
 		if (gotInfo && gotName)
 		{
-			if (wcscmp(deviceName, outputThreadData->deviceName) != 0) {
-				EnterCriticalSection(&outputThreadData->criticalSection);
-				wcscpy_s(outputThreadData->deviceName, deviceName);
-				LeaveCriticalSection(&outputThreadData->criticalSection);
-			}
-			updatePS4Controller(input->data.hid.bRawData, input->data.hid.dwSizeHid, outputThreadData);
+			updatePS4Controller(input->data.hid.bRawData, input->data.hid.dwSizeHid, deviceName, outputData);
 			//updateJoyCon(input->data.hid.bRawData, input->data.hid.dwSizeHid);
 		}
 	}
@@ -153,9 +169,20 @@ void updateRawInput(LPARAM lParam, OutputThreadData* outputThreadData)
 
 LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-	OutputThreadData* outputThreadData = (OutputThreadData*)GetPropA(hwnd, "userData");
+	OutputData* outputData = (OutputData*)GetPropA(hwnd, "userData");
 	if (msg == WM_INPUT) {
-		updateRawInput(lParam, outputThreadData);
+		LARGE_INTEGER start_time;
+		QueryPerformanceCounter(&start_time);
+
+		updateRawInput(lParam, outputData);
+
+		LARGE_INTEGER end_time;
+		QueryPerformanceCounter(&end_time);
+
+		LARGE_INTEGER ticksPerSecond;
+		QueryPerformanceFrequency(&ticksPerSecond);
+
+		printf("%fms ", (double)(end_time.QuadPart-start_time.QuadPart)/(double)ticksPerSecond.QuadPart*1000);
 	}
 	return DefWindowProc(hwnd, msg, wParam, lParam);
 }
@@ -179,12 +206,9 @@ int main()
 	RegisterRawInputDevices(&rid, 1, sizeof(RAWINPUTDEVICE));
 
 	// Startup output thread
-	OutputThreadData outputThreadData = {0};
-	InitializeConditionVariable(&outputThreadData.conditionVariable);
-	InitializeCriticalSection(&outputThreadData.criticalSection);
-	CreateThread(0, 0, (LPTHREAD_START_ROUTINE)outputThread, (LPVOID)&outputThreadData, 0, 0);
+	OutputData outputData = {0};
 
-	SetPropA(hwnd, "userData", &outputThreadData);
+	SetPropA(hwnd, "userData", &outputData);
 	MSG msg;
 	while (GetMessage(&msg, NULL, 0, 0)) {
 		TranslateMessage(&msg);

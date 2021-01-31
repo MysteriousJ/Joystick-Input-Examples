@@ -17,6 +17,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "PS4", "PS4\PS4.vcxproj", "{
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "File", "File\File.vcxproj", "{EF95E120-7D0F-4F7A-A285-87AA787FEF6F}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RawInputBuffered", "RawInputBuffered\RawInputBuffered.vcxproj", "{5C255440-FDC8-4FCA-A12A-1487DF81FCA3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -81,6 +83,14 @@ Global
 		{EF95E120-7D0F-4F7A-A285-87AA787FEF6F}.Release|x64.Build.0 = Release|x64
 		{EF95E120-7D0F-4F7A-A285-87AA787FEF6F}.Release|x86.ActiveCfg = Release|Win32
 		{EF95E120-7D0F-4F7A-A285-87AA787FEF6F}.Release|x86.Build.0 = Release|Win32
+		{5C255440-FDC8-4FCA-A12A-1487DF81FCA3}.Debug|x64.ActiveCfg = Debug|x64
+		{5C255440-FDC8-4FCA-A12A-1487DF81FCA3}.Debug|x64.Build.0 = Debug|x64
+		{5C255440-FDC8-4FCA-A12A-1487DF81FCA3}.Debug|x86.ActiveCfg = Debug|Win32
+		{5C255440-FDC8-4FCA-A12A-1487DF81FCA3}.Debug|x86.Build.0 = Debug|Win32
+		{5C255440-FDC8-4FCA-A12A-1487DF81FCA3}.Release|x64.ActiveCfg = Release|x64
+		{5C255440-FDC8-4FCA-A12A-1487DF81FCA3}.Release|x64.Build.0 = Release|x64
+		{5C255440-FDC8-4FCA-A12A-1487DF81FCA3}.Release|x86.ActiveCfg = Release|Win32
+		{5C255440-FDC8-4FCA-A12A-1487DF81FCA3}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
