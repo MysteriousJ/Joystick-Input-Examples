@@ -130,7 +130,9 @@ You can set LEDs and rumble on a Dualshock 4 by sending output with `WriteFile`.
 While [Playstations's own website](https://www.playstation.com/en-us/support/hardware/ps4-pair-dualshock-4-wireless-with-pc-or-mac/) states that Dualshock 4 controllers don't support rumble and changing LED color on PC when connected by bluetooth, it is in fact possible. There are two ways to send output over bluetooth, `WriteFile` or `HidD_SetOutputReport`. `WriteFile` uses Data/Output (0xA2) Bluetooth HID report type which is sent over an interrupt channel. In other words, it's asynchronous. `HidD_SetOutputReport` uses SET_REPORT/OUTPUT (0x52) synchronously, and takes around 10ms to complete on my machine, so you would need to put it on a dedicated output thread for each controller.
 
 When using `WriteFile()` for Bluetooth, you'll need to write a 32-bit [CRC](https://en.wikipedia.org/wiki/Cyclic_redundancy_check) at the end of the buffer. There are [two common 32-bit CRC algorithms](https://github.com/Michaelangel007/crc32), and Dualshock 4 controllers use [CRC32b](https://wiki.osdev.org/CRC32). Here's an example of an output report sent using `WriteFile`, examined with Wireshark:
+
 ![Wireshark screenshot](img/ds4bt_writefile.png)
+
 The highlighted portion is the payload, which starts at byte 0x23, but the buffer I gave to `WriteFile()` starts at byte 0x24. Windows inserted a 1-byte header, 0xA2, indicating the Bluetooth HID report type. At the end of the payload is the 4-byte CRC. The entire payload, up to and excluding the bytes used for the CRC, is used to create the CRC hash. That means you'll have to hard code `0xA2` when calculating it.
 
 ### XBox controllers
@@ -179,6 +181,6 @@ Handling hot-plugging at the game-logic level is probably going to be a lot more
 You may want to notify the player and/or pause the game when their controller is unplugged. Charging cables that come with PS4 controllers are notoriously loose, and *Cuphead* saved me many times by pausing the game when my controller disconnected.
 
 ## Displaying Physical Buttons
-Console games have long displayed icons instead of words to tell players which button to press. Modern PC games are also using button icons, a.k.a. glyphs, in their displayed text for popular controllers. Steam provides a set of glyphs for games to use that's accessible [through their API](https://partner.steamgames.com/doc/api/isteaminput#GetGlyphForActionOrigin). Games like *Hades* have their own set of glyphs to match the game's aesthetic:
-![Hades button configuration screen](img/hades_glyphs.png)
+Console games have long displayed icons instead of words to tell players which button to press. Modern PC games are also using button icons, a.k.a. glyphs, in their displayed text for popular controllers. Steam provides a set of glyphs for games to use that's accessible [through their API](https://partner.steamgames.com/doc/api/isteaminput#GetGlyphForActionOrigin). Games like *Hades* have [their own set of glyphs](img/hades_glyphs.png) to match the game's aesthetic.
+
 Strings displayed to the user will need to encode logical game actions for which a glyph will be displayed; for example, `"Press [action:jump] to jump!"`. Before displaying the string, ask the button configuration which physical button maps to that action, and use that as a key to look up the glyph. The `combined` example has unique strings for each physical button that could be used as keys in a glyph table.
