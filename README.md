@@ -1,5 +1,5 @@
 # Joystick Input Examples
-This guide aims to provide everything you need to know about implementing joystick input in PC games. Prerequisites: familiarity with Windows programming and C-style C++.
+This guide aims to provide everything you need to know about implementing joystick input in PC games. Prerequisites: familiarity with [Windows programming](https://en.wikibooks.org/wiki/Windows_Programming/Handles_and_Data_Types) and C-style C++.
 
 The `src` folder contains small example programs to illustrate implementation details. You can run them in Visual Studio by opening `Joystick Input Examples.sln` in the `vs` folder, or by running `build.bat` with a Visual Studio developer command line and launching the `.exe`s. The `combined` example uses RawInput and XInput to demostrate a more complete Windows implementation.
 
@@ -16,12 +16,12 @@ Special thanks to Handmade Network for fostering a community that values explori
 	- [DirectInput](#directinput)
 	- [RawInput](#rawinput)
 	- [XInput](#xinput)
-	- [Files](#files)
 	- [Libraries](#libraries)
 		- [SDL](#sdl)
 		- [Steam](#steam)
 - [Specialized I/O](#specialized-io)
 	- [Dualshock 4](#dualshock-4)
+	- [XBox Controllers](#xbox-controllers)
 - [Button Configuration](#button-configuration)
 	- [Controller Database](#controller-database)
 	- [Calibration](#calibration)
@@ -90,7 +90,11 @@ Device Caps, short for capabilities, contains information about what features th
 ### RawInput
 The first step with RawInput is registering to receive `WM_INPUT` events. Unlike the other APIs, RawInput uses an event queue to get inputs. This has a distinct advantage of being able to get inputs that may have been missed between frames, such as a button being quickly pressed and released (though most games don't worry about this; it would have to be running well under 30fps for players to notice). To register for events, fill out one or more `RAWINPUTDEVICE` structs and pass an array of them to RegisterRawInputDevices(). The structs take the HID usage page and usages of devices for which to receive events, bit flags, and a handle to the window whose window procedure will receive the events. You can use your game window's existing procedure, or create a non-visible window to encapsulate joystick code. The `rawinput` and `combined` examples use a non-visible window to get events in a terminal-based program.
 
-The `lParam` for a `WM_INPUT` message is a handle to the RawInput data for that event. Each `WM_INPUT` has its own RawInput data, so if it takes longer to process an event than the update frequency of the joystick, the queue can get seriously backed up. Pass the RawInput data handle to GetRawInputData to get the actual input buffer, along with a handle to the RawInput device that can be used to get more information about it.
+The `lParam` for a `WM_INPUT` message is a handle to the RawInput data for that event. Each `WM_INPUT` has its own RawInput data, so if it takes longer to process an event than the update frequency of the joystick, the queue can get seriously backed up. Also, each event's RawInput data contains the entire state of the controller, so you may only want to process the latest one.
+
+As an alternative to handling `WM_INPUT` events, you can use `GetRawInputBuffer()` to get an array of all queued `RAWINPUT` data. Unfortunately, it has some alignment quarks. If you compile your program for x86 and run on an x64 machine, the `RAWINPUT` data will be missaligned. You can play around with this in the `rawinput_buffered` example.
+
+Pass the RawInput data handle to GetRawInputData to get the actual input buffer, along with a handle to the RawInput device that can be used to get more information about it.
 
 [Preparsed Data](https://docs.microsoft.com/en-us/windows-hardware/drivers/hid/preparsed-data) describes what kind of data is in the input buffer. We can pass the preparsed data along with the input buffer to the `HidP_*` set of functions to extract analog and digital values. The `rawinput` example prints out all available analog values, while the `combined` example looks at usages to determine which values correspond to analog sticks and triggers on a typical HID joystick.
 
@@ -100,9 +104,6 @@ The [documentation for all this on MSDN](https://docs.microsoft.com/en-us/window
 XInput is a simple API similar to multimedia joystick. It only works with XBox controllers, but makes getting controller state and setting rumble nice and easy.
 
 XInputGetState() has been known to cause a several millisecond hang when trying to access non existent devices, for example, asking for player 2 input when only player 1 is plugged in. You'll probably want to query which controller indices are available once, and only get regular updates from devices you know are connected. See the [Detecting Device Changes](#detecting-device-changes) section for more details.
-
-### Files
-You can interact with a device by opening it with `CreateFile()`. This gives you maximum control over the device; you just have to know what bytes to use. It's a straightforward way to communicate with popular devices that are worth your time to hard code. [Read Jan Axelson's "HIDs up" article](https://www.embedded.com/hids-up/) for an introduction to low-level HID I/O. For XBox controllers, [MMozeiko has an excellent example program](https://gist.github.com/mmozeiko/b8ccc54037a5eaf35432396feabbe435) that uses file I/O instead of the XInput API, and [Dave Midison has a great walkthrough of using Wireshark](https://www.partsnotincluded.com/understanding-the-xbox-360-wired-controllers-usb-data/) to reverse engineer the data needed.
 
 ### Libraries
 
@@ -117,18 +118,23 @@ The [Steam API provides joystick support](https://partner.steamgames.com/doc/api
 ## Specialized I/O
 In addition to XBox controllers, Playstation 4 and Nintendo Switch controllers are popular for PC games at time of writing. The basic functionality of these controllers is HID compliant and will work with any of the HID APIs, but you'll need specialized code if you want to make use of their non-standard features. You can check the product and vendor IDs of a device against a list of known devices to determine the type of controller.
 
-The `specialized` example shows how to implement full support for Playstation 4 controllers. It starts similarly to the `rawinput` example, but instead of passing raw data to `HidP_Get*` functions, it interprets the data directly.
-
-SetOutputReport is synchronous, WriteFile is asynchronous.
-
-In addition to specialized parsing of input, we can control LEDs and rumble using `WriteFile` or `HidD_SetOutputReport`. These two functions use slightly different types of communication on the backend, and you'll need to use the right one for the device. Getting input is fast (around 0.02ms on my machine), but sending output can be slow (up to 10ms on my machine). Therefore each controller will need a dedicated output thread.
+You can interact with a device by opening it with `CreateFile()`, using the device name from `GetRawInputDeviceInfoW`. This gives you maximum control over the device; you just have to know what bytes to use. It's a straightforward way to communicate with popular devices that are worth your time to hard code. [Read Jan Axelson's "HIDs up" article](https://www.embedded.com/hids-up/) for an introduction to low-level HID I/O.
 
 ### Dualshock 4
-A Playstation 4 controller can be connected by a USB cable or bluetooth. For the most part they use the same data, but bluetooth has an extra two bytes at the beginning of input and output reports. While [Playstations's own website](https://www.playstation.com/en-us/support/hardware/ps4-pair-dualshock-4-wireless-with-pc-or-mac/) states that Dualshock 4 controllers don't support rumble and changing LED color on PC when connected by bluetooth, it is in fact possible, you just have to use the right type of output. Use `WriteFile` for USB and `HidD_SetOutputReport` for bluetooth.
+The `specialized` example shows how to implement full support for Playstation 4 controllers. It starts similarly to the `rawinput` example, but instead of passing raw data to `HidP_Get*` functions, it interprets the data directly.
 
-Use the size of the input report to determine if a dualshock 4 is wired or bluetooth. The first byte of a wireless report should be 0x11, but may be different if it was misconfigured by your application or another. For example, if WriteFile is used for bluetooth, the controller will then send packets similar to wired mode, but only containing standard HID data.
+A Playstation 4 controller can be connected by a USB cable or bluetooth. For the most part they use the same data, but bluetooth has an extra two bytes at the beginning of input and output reports. Use the size of the input report to determine if a dualshock 4 is wired or bluetooth. The first byte of a wireless report should be 0x11, but may be different if it was misconfigured by your application or another. psdevwiki.com has thorough deconstruction of [USB](https://www.psdevwiki.com/ps4/DS4-USB) and [Bluetooth](https://www.psdevwiki.com/ps4/DS4-BT) transactions.
 
-HidD_SetOutputReport uses a Set report/output HID transaction. WriteFile uses a Data/output HID transaction.
+You can set LEDs and rumble on a Dualshock 4 by sending output with `WriteFile`. To minimize time spent on `WriteFile()`, the `specialized` and `combined` example programs use overlapped output.
+
+While [Playstations's own website](https://www.playstation.com/en-us/support/hardware/ps4-pair-dualshock-4-wireless-with-pc-or-mac/) states that Dualshock 4 controllers don't support rumble and changing LED color on PC when connected by bluetooth, it is in fact possible. There are two ways to send output over bluetooth, `WriteFile` or `HidD_SetOutputReport`. `WriteFile` uses Data/Output (0xA2) Bluetooth HID report type which is sent over an interrupt channel. In other words, it's asynchronous. `HidD_SetOutputReport` uses SET_REPORT/OUTPUT (0x52) synchronously, and takes around 10ms to complete on my machine, so you would need to put it on a dedicated output thread for each controller.
+
+When using `WriteFile()` for Bluetooth, you'll need to write a 32-bit [CRC](https://en.wikipedia.org/wiki/Cyclic_redundancy_check) at the end of the buffer. There are [two common 32-bit CRC algorithms](https://github.com/Michaelangel007/crc32), and Dualshock 4 controllers use [CRC32b](https://wiki.osdev.org/CRC32). Here's an example of an output report sent using `WriteFile`, examined with Wireshark:
+![Wireshark screenshot](img/ds4bt_writefile.png)
+The highlighted portion is the payload, which starts at byte 0x23, but the buffer I gave to `WriteFile()` starts at byte 0x24. Windows inserted a 1-byte header, 0xA2, indicating the Bluetooth HID report type. At the end of the payload is the 4-byte CRC. The entire payload, up to and excluding the bytes used for the CRC, is used to create the CRC hash. That means you'll have to hard code `0xA2` when calculating it.
+
+### XBox controllers
+If you really don't like the XInput API, it's possible to work with XBox controllers without it. [Mārtiņš Možeiko has an excellent example program](https://gist.github.com/mmozeiko/b8ccc54037a5eaf35432396feabbe435) that uses file I/O instead of the XInput API, and [Dave Midison has a great walkthrough of using Wireshark](https://www.partsnotincluded.com/understanding-the-xbox-360-wired-controllers-usb-data/) to reverse engineer the data needed.
 
 ## Button configuration
 Ideally, players should have full control over how their controller inputs map to game actions through an intuitive interface. Some players will want to play your retro-style game with a Super Nintendo controller going through a random SNES-to-USB converter they found on ebay. Other players have physical disabilities and need to use unusual button mappings or custom-built controllers. Button config is crucial for player experience, but presents numerous complications for developers.
@@ -146,7 +152,7 @@ SDL's Game Controller interface brings the idea of expressing every controller o
 
 SDL includes the database in its source code and is ready to go if you use the Game Controller interface. You can also [download the database](https://github.com/gabomdq/SDL_GameControllerDB) and parse it yourself if you're not using SDL.
 
-The one problem with the database approach is that it doesn't work with USB converters that support multiple types of controllers, as they all share one hardware ID. For example, I have a [converter which supports PS2, Gamecube, and original XBox controllers](https://www.mayflash.com/Products/UNIVERSAL/PC035.html). Somebody at some point made an entry in the SDL database for this device and mapped it for gamecube controllers. I use it for a PS2 controller, so the mapping is totally wrong and renders some buttons unusable. Still, the database approach will work fantastically well for nearly all of your players.
+The one problem with the database approach is that it doesn't work with USB converters that support multiple types of controllers, as they all share one hardware ID. For example, I have a [converter which supports PS2, Gamecube, and original XBox controllers](https://www.mayflash.com/Products/UNIVERSAL/PC035.html). Somebody at some point made an entry in the SDL database for this device and mapped it for Gamecube controllers. I use it for a PS2 controller, so the mapping is totally wrong and renders some buttons unusable. Still, the database approach will work fantastically well for nearly all of your players.
 
 ### Calibration
 I remember many times hastily plugging a controller into a Gamecube, bumping an analog stick while doing so, causing it to drift. Pushing it to the left made the cursor on character select drift to the right; pushing it up caused drifting downward. This is because the gamecube calibrates the controller when it's plugged in. Whatever the analog stick's current axis values were are now considered the rest position, and all inputs are relative to that. If an axis is calibrated for a negative value being the rest position, the axis' physical neutral will appear to be a positive input. Unplugging and reconnecting the controller—or holding down X, Y, and start—recalibrates it.
@@ -161,18 +167,18 @@ Players may not have all their controllers connected when they launch your game.
 
 Enumeration can be slow—I've seen DirectInput take over 70ms to complete enumeration, so doing it every frame isn't an option. `SDL_NumJoysticks()` seems to only re-enumerate every few seconds, so it runs smoothly then causes a massive hitch if called every frame. So you should only enumerate when you're sure devices have been changed. It might still cause a frame drop, but the player is unlikely to notice while they're fiddling with USB ports.
 
-Hotplugging, as it is often called, is easy to support at the Windows API level. For RawInput, use the `RIDEV_DEVNOTIFY` flag when registering for events, and the window procedure will receive `WM_INPUT_DEVICE_CHANGE` messages whenever a device is plugged in or removed. A handle to that device will be available in `lParam`. For other APIs, add the following during program startup:
+Hotplugging, as it is often called, is easy to support at the Windows API level. For RawInput, use the `RIDEV_DEVNOTIFY` flag when registering for events, and the window procedure will receive `WM_INPUT_DEVICE_CHANGE` messages whenever a device is plugged in or removed. A handle to that device will be available in `lParam`. The window procedure will also receive `WM_INPUT_DEVICE_CHANGE` messages for each device that was already connected before registering for events, so you don't need to enumerate them separately when using RawInput. For other APIs, add the following during program startup:
 ```C
 DEV_BROADCAST_DEVICEINTERFACE notificationFilter = { sizeof(DEV_BROADCAST_DEVICEINTERFACE), DBT_DEVTYP_DEVICEINTERFACE };
 RegisterDeviceNotification(hwnd, &notificationFilter, DEVICE_NOTIFY_WINDOW_HANDLE);
 ```
-This will register your window procedure to receive `WM_DEVICECHANGE` messages. These will also be sent when a device is plugged in or taken out. SDL offers similar events, `SDL_JOYDEVICEADDED` and `SDL_JOYDEVICEREMOVED`. Once you know there's been a change in available devices, you can re-enumerate them.
+This will register your window procedure to receive `WM_DEVICECHANGE` messages that will be sent when a device is plugged in or taken out. SDL offers similar events, `SDL_JOYDEVICEADDED` and `SDL_JOYDEVICEREMOVED`. Once you know there's been a change in available devices, you can re-enumerate them.
 
 Handling hot-plugging at the game-logic level is probably going to be a lot more complicated. A multiplayer game could have several controllers plugged in and removed frequently as players join in and take breaks. If you just associate a player with index into the array of all available joysticks, player 3 could suddenly become player 2 when a joystick is disconnected. Even worse, button configurations specific to each device or player could become mixed up. The XInput driver handles this well for XBox controllers: player 2 will still be player 2 even if player 1 disconnects. For HID, you'll need some unique ID for each joystick to keep track of them. The device handle changes when a controller is disconnected and reconnected, so the `combined` example uses `RIDI_DEVICENAME` from RawInput. It keeps disconnected joysticks around in the array so it can put them back in the same place if reconnected, and user code would only have to worry about index for player and button config associations.
 
 You may want to notify the player and/or pause the game when their controller is unplugged. Charging cables that come with PS4 controllers are notoriously loose, and *Cuphead* saved me many times by pausing the game when my controller disconnected.
 
 ## Displaying Physical Buttons
-Console games have long displayed icons instead of words to tell players which button to press. Modern PC games are also using button icons, a.k.a. glyphs, in their displayed text for popular controllers. Steam provides a set of glyphs for games to use that's accessible [through their API](https://partner.steamgames.com/doc/api/isteaminput#GetGlyphForActionOrigin). Games like *Hades* have their own set of glyphs to match the game's aesthetic.
-
+Console games have long displayed icons instead of words to tell players which button to press. Modern PC games are also using button icons, a.k.a. glyphs, in their displayed text for popular controllers. Steam provides a set of glyphs for games to use that's accessible [through their API](https://partner.steamgames.com/doc/api/isteaminput#GetGlyphForActionOrigin). Games like *Hades* have their own set of glyphs to match the game's aesthetic:
+![Hades button configuration screen](img/hades_glyphs.png)
 Strings displayed to the user will need to encode logical game actions for which a glyph will be displayed; for example, `"Press [action:jump] to jump!"`. Before displaying the string, ask the button configuration which physical button maps to that action, and use that as a key to look up the glyph. The `combined` example has unique strings for each physical button that could be used as keys in a glyph table.

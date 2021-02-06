@@ -7,7 +7,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\src\ps4.cpp">
+    <ClCompile Include="..\..\src\specialized.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

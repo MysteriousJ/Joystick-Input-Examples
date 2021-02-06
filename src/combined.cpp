@@ -4,27 +4,13 @@
 #include <Dbt.h>
 #include <hidsdi.h>
 #include <hidpi.h>
+#include <inttypes.h>
 
 enum JoystickType
 {
 	JoystickTypeGeneric,
 	JoystickTypeXbox,
-	JoystickTypePS4
-};
-
-struct OutputThreadData
-{
-	enum Type {
-		type_writeFile, type_setOutputReport, type_stop
-	};
-
-	volatile DWORD byteCount;
-	volatile BYTE buffer[128];
-	volatile Type type;
-	volatile HANDLE file;
-	HANDLE thread;
-	CONDITION_VARIABLE conditionVariable;
-	CRITICAL_SECTION criticalSection;
+	JoystickTypeDualshock4
 };
 
 struct JoystickState
@@ -32,6 +18,7 @@ struct JoystickState
 	static const unsigned int inputCount = 64;
 	static const unsigned int maxNameLength = 128;
 
+	// Inputs
 	bool connected;
 	JoystickType type;
 	float currentInputs[inputCount];
@@ -47,7 +34,9 @@ struct JoystickState
 	float ledGreen;
 	float ledBlue;
 
-	OutputThreadData* outputThreadData;
+	BYTE outputBuffer[96];
+	HANDLE outputFile;
+	OVERLAPPED overlapped;
 };
 
 struct Joysticks
@@ -113,33 +102,33 @@ const char* xboxInputNames[] = {
 	"XBox-Right Stick Down",
 };
 
-enum PS4Inputs {
-	PS4InputSquare,
-	PS4InputX,
-	PS4InputCircle,
-	PS4InputTriangle,
-	PS4InputL1,
-	PS4InputR1,
-	PS4InputL3,
-	PS4InputR3,
-	PS4InputOptions,
-	PS4InputShare,
-	PS4InputPS,
-	PS4InputTouchPadButton,
-	PS4InputLeftStickLeft,
-	PS4InputLeftStickRight,
-	PS4InputLeftStickUp,
-	PS4InputLeftStickDown,
-	PS4InputRightStickLeft,
-	PS4InputRightStickRight,
-	PS4InputRightStickUp,
-	PS4InputRightStickDown,
-	PS4InputL2,
-	PS4InputR2,
-	PS4InputDpadLeft,
-	PS4InputDpadRight,
-	PS4InputDpadUp,
-	PS4InputDpadDown
+enum DS4Inputs {
+	DS4InputSquare,
+	DS4InputX,
+	DS4InputCircle,
+	DS4InputTriangle,
+	DS4InputL1,
+	DS4InputR1,
+	DS4InputL3,
+	DS4InputR3,
+	DS4InputOptions,
+	DS4InputShare,
+	DS4InputPS,
+	DS4InputTouchPadButton,
+	DS4InputLeftStickLeft,
+	DS4InputLeftStickRight,
+	DS4InputLeftStickUp,
+	DS4InputLeftStickDown,
+	DS4InputRightStickLeft,
+	DS4InputRightStickRight,
+	DS4InputRightStickUp,
+	DS4InputRightStickDown,
+	DS4InputL2,
+	DS4InputR2,
+	DS4InputDpadLeft,
+	DS4InputDpadRight,
+	DS4InputDpadUp,
+	DS4InputDpadDown
 };
 
 const char* ps4InputNames[] = {
@@ -281,34 +270,53 @@ const char* genericInputNames[] = {
 	"Controller-Hat Down",
 };
 
-int outputThread(void* param)
-{
-	OutputThreadData* data = (OutputThreadData*)param;
-	EnterCriticalSection(&data->criticalSection);
-	while (data->type != OutputThreadData::type_stop)
-	{
-		SleepConditionVariableCS(&data->conditionVariable, &data->criticalSection, INFINITE);
-		if (data->type != OutputThreadData::type_stop)
-		{
-			if (data->type == OutputThreadData::type_writeFile) {
-				DWORD bytesWritten;
-				WriteFile(data->file, (void*)data->buffer, data->byteCount, &bytesWritten, 0);
-			}
-			if (data->type == OutputThreadData::type_setOutputReport) {
-				HidD_SetOutputReport(data->file, (void*)data->buffer, data->byteCount);
-			}
-		}
-	}
-	LeaveCriticalSection(&data->criticalSection);
-	return 0;
-}
-
 bool isXboxController(char* deviceName)
 {
 	return strstr(deviceName, "IG_");
 }
 
-void updatePS4Controller(JoystickState* out, BYTE rawData[], DWORD byteCount)
+bool isDualshock4(RID_DEVICE_INFO_HID info)
+{
+	const DWORD sonyVendorID = 0x054C;
+	const DWORD ds4Gen1ProductID = 0x05C4;
+	const DWORD ds4Gen2ProductID = 0x09CC;
+
+	return info.dwVendorId == sonyVendorID && (info.dwProductId == ds4Gen1ProductID || info.dwProductId == ds4Gen2ProductID);
+}
+
+uint32_t makeReflectedCRC32(BYTE* data, uint32_t byteCount)
+{
+	static const uint32_t crcTable[] = {
+		0x00000000,0x77073096,0xEE0E612C,0x990951BA,0x076DC419,0x706AF48F,0xE963A535,0x9E6495A3,0x0EDB8832,0x79DCB8A4,0xE0D5E91E,0x97D2D988,0x09B64C2B,
+		0x7EB17CBD,0xE7B82D07,0x90BF1D91,0x1DB71064,0x6AB020F2,0xF3B97148,0x84BE41DE,0x1ADAD47D,0x6DDDE4EB,0xF4D4B551,0x83D385C7,0x136C9856,0x646BA8C0,
+		0xFD62F97A,0x8A65C9EC,0x14015C4F,0x63066CD9,0xFA0F3D63,0x8D080DF5,0x3B6E20C8,0x4C69105E,0xD56041E4,0xA2677172,0x3C03E4D1,0x4B04D447,0xD20D85FD,
+		0xA50AB56B,0x35B5A8FA,0x42B2986C,0xDBBBC9D6,0xACBCF940,0x32D86CE3,0x45DF5C75,0xDCD60DCF,0xABD13D59,0x26D930AC,0x51DE003A,0xC8D75180,0xBFD06116,
+		0x21B4F4B5,0x56B3C423,0xCFBA9599,0xB8BDA50F,0x2802B89E,0x5F058808,0xC60CD9B2,0xB10BE924,0x2F6F7C87,0x58684C11,0xC1611DAB,0xB6662D3D,0x76DC4190,
+		0x01DB7106,0x98D220BC,0xEFD5102A,0x71B18589,0x06B6B51F,0x9FBFE4A5,0xE8B8D433,0x7807C9A2,0x0F00F934,0x9609A88E,0xE10E9818,0x7F6A0DBB,0x086D3D2D,
+		0x91646C97,0xE6635C01,0x6B6B51F4,0x1C6C6162,0x856530D8,0xF262004E,0x6C0695ED,0x1B01A57B,0x8208F4C1,0xF50FC457,0x65B0D9C6,0x12B7E950,0x8BBEB8EA,
+		0xFCB9887C,0x62DD1DDF,0x15DA2D49,0x8CD37CF3,0xFBD44C65,0x4DB26158,0x3AB551CE,0xA3BC0074,0xD4BB30E2,0x4ADFA541,0x3DD895D7,0xA4D1C46D,0xD3D6F4FB,
+		0x4369E96A,0x346ED9FC,0xAD678846,0xDA60B8D0,0x44042D73,0x33031DE5,0xAA0A4C5F,0xDD0D7CC9,0x5005713C,0x270241AA,0xBE0B1010,0xC90C2086,0x5768B525,
+		0x206F85B3,0xB966D409,0xCE61E49F,0x5EDEF90E,0x29D9C998,0xB0D09822,0xC7D7A8B4,0x59B33D17,0x2EB40D81,0xB7BD5C3B,0xC0BA6CAD,0xEDB88320,0x9ABFB3B6,
+		0x03B6E20C,0x74B1D29A,0xEAD54739,0x9DD277AF,0x04DB2615,0x73DC1683,0xE3630B12,0x94643B84,0x0D6D6A3E,0x7A6A5AA8,0xE40ECF0B,0x9309FF9D,0x0A00AE27,
+		0x7D079EB1,0xF00F9344,0x8708A3D2,0x1E01F268,0x6906C2FE,0xF762575D,0x806567CB,0x196C3671,0x6E6B06E7,0xFED41B76,0x89D32BE0,0x10DA7A5A,0x67DD4ACC,
+		0xF9B9DF6F,0x8EBEEFF9,0x17B7BE43,0x60B08ED5,0xD6D6A3E8,0xA1D1937E,0x38D8C2C4,0x4FDFF252,0xD1BB67F1,0xA6BC5767,0x3FB506DD,0x48B2364B,0xD80D2BDA,
+		0xAF0A1B4C,0x36034AF6,0x41047A60,0xDF60EFC3,0xA867DF55,0x316E8EEF,0x4669BE79,0xCB61B38C,0xBC66831A,0x256FD2A0,0x5268E236,0xCC0C7795,0xBB0B4703,
+		0x220216B9,0x5505262F,0xC5BA3BBE,0xB2BD0B28,0x2BB45A92,0x5CB36A04,0xC2D7FFA7,0xB5D0CF31,0x2CD99E8B,0x5BDEAE1D,0x9B64C2B0,0xEC63F226,0x756AA39C,
+		0x026D930A,0x9C0906A9,0xEB0E363F,0x72076785,0x05005713,0x95BF4A82,0xE2B87A14,0x7BB12BAE,0x0CB61B38,0x92D28E9B,0xE5D5BE0D,0x7CDCEFB7,0x0BDBDF21,
+		0x86D3D2D4,0xF1D4E242,0x68DDB3F8,0x1FDA836E,0x81BE16CD,0xF6B9265B,0x6FB077E1,0x18B74777,0x88085AE6,0xFF0F6A70,0x66063BCA,0x11010B5C,0x8F659EFF,
+		0xF862AE69,0x616BFFD3,0x166CCF45,0xA00AE278,0xD70DD2EE,0x4E048354,0x3903B3C2,0xA7672661,0xD06016F7,0x4969474D,0x3E6E77DB,0xAED16A4A,0xD9D65ADC,
+		0x40DF0B66,0x37D83BF0,0xA9BCAE53,0xDEBB9EC5,0x47B2CF7F,0x30B5FFE9,0xBDBDF21C,0xCABAC28A,0x53B39330,0x24B4A3A6,0xBAD03605,0xCDD70693,0x54DE5729,
+		0x23D967BF,0xB3667A2E,0xC4614AB8,0x5D681B02,0x2A6F2B94,0xB40BBE37,0xC30C8EA1,0x5A05DF1B,0x2D02EF8D
+	};
+	uint32_t crc = ~0;
+	while (byteCount--) {
+		crc = (crc>>8) ^ crcTable[(uint8_t)crc^*data];
+		++data;
+	}
+	return ~crc;
+}
+
+void updateDualshock4(JoystickState* state, BYTE rawData[], DWORD byteCount)
 {
 	const DWORD usbInputByteCount = 64;
 	const DWORD bluetoothInputByteCount = 547;
@@ -327,75 +335,67 @@ void updatePS4Controller(JoystickState* out, BYTE rawData[], DWORD byteCount)
 	unsigned char rightStickY  = *(rawData + offset + 4);
 	unsigned char leftTrigger  = *(rawData + offset + 8);
 	unsigned char rightTrigger = *(rawData + offset + 9);
+	unsigned char dpad           = 0b1111 & *(rawData + offset + 5);
 
-	unsigned char buttons1 = *(rawData + offset + 5);
-	unsigned char buttons2 = *(rawData + offset + 6);
-	unsigned char buttons3 = *(rawData + offset + 7);
+	state->currentInputs[DS4InputSquare]         = (float)(1 & (*(rawData + offset + 5) >> 4));
+	state->currentInputs[DS4InputX]              = (float)(1 & (*(rawData + offset + 5) >> 5));
+	state->currentInputs[DS4InputCircle]         = (float)(1 & (*(rawData + offset + 5) >> 6));
+	state->currentInputs[DS4InputTriangle]       = (float)(1 & (*(rawData + offset + 5) >> 7));
+	state->currentInputs[DS4InputL1]             = (float)(1 & (*(rawData + offset + 6) >> 0));
+	state->currentInputs[DS4InputR1]             = (float)(1 & (*(rawData + offset + 6) >> 1));
+	state->currentInputs[DS4InputShare]          = (float)(1 & (*(rawData + offset + 6) >> 4));
+	state->currentInputs[DS4InputOptions]        = (float)(1 & (*(rawData + offset + 6) >> 5));
+	state->currentInputs[DS4InputL3]             = (float)(1 & (*(rawData + offset + 6) >> 6));
+	state->currentInputs[DS4InputR3]             = (float)(1 & (*(rawData + offset + 6) >> 7));
+	state->currentInputs[DS4InputPS]             = (float)(1 & (*(rawData + offset + 7) >> 0));
+	state->currentInputs[DS4InputTouchPadButton] = (float)(1 & (*(rawData + offset + 7) >> 1));
+	state->currentInputs[DS4InputLeftStickLeft]   = -(leftStickX /255.0f * 2 -1);
+	state->currentInputs[DS4InputLeftStickRight]  =  (leftStickX /255.0f * 2 -1);
+	state->currentInputs[DS4InputLeftStickUp]     = -(leftStickY /255.0f * 2 -1);
+	state->currentInputs[DS4InputLeftStickDown]   =  (leftStickY /255.0f * 2 -1);
+	state->currentInputs[DS4InputRightStickLeft]  = -(rightStickX/255.0f * 2 -1);
+	state->currentInputs[DS4InputRightStickRight] =  (rightStickX/255.0f * 2 -1);
+	state->currentInputs[DS4InputRightStickUp]    = -(rightStickY/255.0f * 2 -1);
+	state->currentInputs[DS4InputRightStickDown]  =  (rightStickY/255.0f * 2 -1);
+	state->currentInputs[DS4InputL2] = leftTrigger /255.0f;
+	state->currentInputs[DS4InputR2] = rightTrigger/255.0f;
+	state->currentInputs[DS4InputDpadUp]    = (dpad==0 || dpad==1 || dpad==7)? 1.0f : 0.0f;
+	state->currentInputs[DS4InputDpadRight] = (dpad==1 || dpad==2 || dpad==3)? 1.0f : 0.0f; 
+	state->currentInputs[DS4InputDpadDown]  = (dpad==3 || dpad==4 || dpad==5)? 1.0f : 0.0f; 
+	state->currentInputs[DS4InputDpadLeft]  = (dpad==5 || dpad==6 || dpad==7)? 1.0f : 0.0f;
+	state->type = JoystickTypeDualshock4;
 
-	unsigned char squareButton   = 1 & (buttons1 >> 4);
-	unsigned char xButton        = 1 & (buttons1 >> 5);
-	unsigned char circleButton   = 1 & (buttons1 >> 6);
-	unsigned char triangleButton = 1 & (buttons1 >> 7);
-	unsigned char dpad           = 0b1111 & buttons1;
-	unsigned char l1Button       = 1 & (buttons2 >> 0);
-	unsigned char r1Button       = 1 & (buttons2 >> 1);
-	unsigned char shareButton    = 1 & (buttons2 >> 4);
-	unsigned char optionsButton  = 1 & (buttons2 >> 5);
-	unsigned char l3Button       = 1 & (buttons2 >> 6);
-	unsigned char r3Button       = 1 & (buttons2 >> 7);
-	unsigned char psButton       = 1 & (buttons3 >> 0);
-	unsigned char touchPadButton = 1 & (buttons3 >> 1);
-
-	out->currentInputs[PS4InputSquare] = (float)squareButton;
-	out->currentInputs[PS4InputX] = (float)xButton;
-	out->currentInputs[PS4InputCircle] = (float)circleButton;
-	out->currentInputs[PS4InputTriangle] = (float)triangleButton;
-	out->currentInputs[PS4InputL1] = (float)l1Button;
-	out->currentInputs[PS4InputR1] = (float)r1Button;
-	out->currentInputs[PS4InputShare] = (float)shareButton;
-	out->currentInputs[PS4InputOptions] = (float)optionsButton;
-	out->currentInputs[PS4InputL3] = (float)l3Button;
-	out->currentInputs[PS4InputR3] = (float)r3Button;
-	out->currentInputs[PS4InputPS] = (float)psButton;
-	out->currentInputs[PS4InputTouchPadButton]  = (float)touchPadButton;
-	out->currentInputs[PS4InputLeftStickLeft]   = -(leftStickX /255.0f * 2 -1);
-	out->currentInputs[PS4InputLeftStickRight]  =  (leftStickX /255.0f * 2 -1);
-	out->currentInputs[PS4InputLeftStickUp]     = -(leftStickY /255.0f * 2 -1);
-	out->currentInputs[PS4InputLeftStickDown]   =  (leftStickY /255.0f * 2 -1);
-	out->currentInputs[PS4InputRightStickLeft]  = -(rightStickX/255.0f * 2 -1);
-	out->currentInputs[PS4InputRightStickRight] =  (rightStickX/255.0f * 2 -1);
-	out->currentInputs[PS4InputRightStickUp]    = -(rightStickY/255.0f * 2 -1);
-	out->currentInputs[PS4InputRightStickDown]  =  (rightStickY/255.0f * 2 -1);
-	out->currentInputs[PS4InputL2]  = leftTrigger /255.0f;
-	out->currentInputs[PS4InputR2] = rightTrigger/255.0f;
-	out->currentInputs[PS4InputDpadUp]    = (dpad==0 || dpad==1 || dpad==7)? 1.0f : 0.0f;
-	out->currentInputs[PS4InputDpadRight] = (dpad==1 || dpad==2 || dpad==3)? 1.0f : 0.0f; 
-	out->currentInputs[PS4InputDpadDown]  = (dpad==3 || dpad==4 || dpad==5)? 1.0f : 0.0f; 
-	out->currentInputs[PS4InputDpadLeft]  = (dpad==5 || dpad==6 || dpad==7)? 1.0f : 0.0f;
-	out->type = JoystickTypePS4;
-
-	offset = 0;
-	if (byteCount == usbInputByteCount)
-	{
-		out->outputThreadData->type = OutputThreadData::type_writeFile;
-		out->outputThreadData->byteCount = 32;
-		out->outputThreadData->buffer[0] = 0x05;
-		out->outputThreadData->buffer[1] = 0xFF;
+	int headerSize = 0;
+	int outputByteCount = 0;
+	if (byteCount == usbInputByteCount) {
+		outputByteCount = 32;
+		state->outputBuffer[0] = 0x05;
+		state->outputBuffer[1] = 0xFF;
 	}
-	if (byteCount == bluetoothInputByteCount)
-	{
-		out->outputThreadData->type = OutputThreadData::type_setOutputReport;
-		out->outputThreadData->byteCount = 78;
-		out->outputThreadData->buffer[0] = 0x11;
-		out->outputThreadData->buffer[1] = 0XC0;
-		out->outputThreadData->buffer[3] = 0x07;
-		offset = 2;
+	if (byteCount == bluetoothInputByteCount) {
+		outputByteCount = 78;
+		state->outputBuffer[0] = 0x11;
+		state->outputBuffer[1] = 0XC0;
+		state->outputBuffer[3] = 0x07;
+		headerSize = 1;
 	}
-	out->outputThreadData->buffer[4 + offset] = (BYTE)(out->lightRumble*0xFF);
-	out->outputThreadData->buffer[5 + offset] = (BYTE)(out->heavyRumble*0xFF);
-	out->outputThreadData->buffer[6 + offset] = (BYTE)(out->ledRed     *0xFF);
-	out->outputThreadData->buffer[7 + offset] = (BYTE)(out->ledGreen   *0xFF);
-	out->outputThreadData->buffer[8 + offset] = (BYTE)(out->ledBlue    *0xFF);
+	state->outputBuffer[4 + offset + headerSize] = (BYTE)(state->lightRumble*0xFF);
+	state->outputBuffer[5 + offset + headerSize] = (BYTE)(state->heavyRumble*0xFF);
+	state->outputBuffer[6 + offset + headerSize] = (BYTE)(state->ledRed     *0xFF);
+	state->outputBuffer[7 + offset + headerSize] = (BYTE)(state->ledGreen   *0xFF);
+	state->outputBuffer[8 + offset + headerSize] = (BYTE)(state->ledBlue    *0xFF);
+
+	if (byteCount == bluetoothInputByteCount) {
+		uint32_t crc = makeReflectedCRC32(state->outputBuffer, 75);
+		memcpy(state->outputBuffer+75, &crc, sizeof(crc));
+	}
+
+	DWORD bytesTransferred;
+	if (GetOverlappedResult(state->outputFile, &state->overlapped, &bytesTransferred, false)) {
+		if (state->outputFile != INVALID_HANDLE_VALUE) {
+			WriteFile(state->outputFile, (void*)(state->outputBuffer+headerSize), outputByteCount, 0, &state->overlapped);
+		}
+	}
 }
 
 void parseGenericController(JoystickState* out, BYTE rawData[], DWORD dataSize, _HIDP_PREPARSED_DATA* preparsedData)
@@ -448,7 +448,7 @@ void parseGenericController(JoystickState* out, BYTE rawData[], DWORD dataSize, 
 void updateRawInput(Joysticks* joysticks, LPARAM lParam)
 {
 	UINT size = 0;
-	UINT errorCode = GetRawInputData((HRAWINPUT)lParam, RID_INPUT, NULL, &size, sizeof(RAWINPUTHEADER));
+	GetRawInputData((HRAWINPUT)lParam, RID_INPUT, NULL, &size, sizeof(RAWINPUTHEADER));
 	RAWINPUT* input = (RAWINPUT*)malloc(size);
 	if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER)) > 0)
 	{
@@ -471,16 +471,16 @@ void updateRawInput(Joysticks* joysticks, LPARAM lParam)
 				if (wcscmp(deviceName, joysticks->states[i].deviceName) == 0)
 				{
 					JoystickState* state = &joysticks->states[i];
-					if (deviceInfo.hid.dwProductId == 2508) {
-						updatePS4Controller(state, input->data.hid.bRawData, input->data.hid.dwSizeHid);
+					if (isDualshock4(deviceInfo.hid)) {
+						updateDualshock4(state, input->data.hid.bRawData, input->data.hid.dwSizeHid);
 					}
 					else {
 						parseGenericController(state, input->data.hid.bRawData, input->data.hid.dwSizeHid, data);
 					}
-					free(data);
 				}
 			}
 		}
+		free(data);
 	}
 	free(input);
 }
@@ -496,64 +496,49 @@ void connectHIDJoystick(Joysticks* joysticks, const WCHAR* deviceName)
 		joysticks->states = (JoystickState*)realloc(joysticks->states, joysticks->count*sizeof(JoystickState));
 		JoystickState newState = {0};
 		wcscpy_s(newState.deviceName, deviceName);
-
-		newState.outputThreadData = (OutputThreadData*)calloc(1, sizeof(OutputThreadData));
-		InitializeConditionVariable(&newState.outputThreadData->conditionVariable);
-		InitializeCriticalSection(&newState.outputThreadData->criticalSection);
-
-		HidD_GetProductString(newState.outputThreadData->file, newState.productName, JoystickState::maxNameLength);
-		HidD_GetManufacturerString(newState.outputThreadData->file, newState.manufacturerName, JoystickState::maxNameLength);
-
 		joysticks->states[joystickIndex] = newState;
 	}
 
-	joysticks->states[joystickIndex].outputThreadData->type = OutputThreadData::type_writeFile;
-	joysticks->states[joystickIndex].outputThreadData->file = CreateFileW(deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
-	joysticks->states[joystickIndex].outputThreadData->thread = CreateThread(0, 0, (LPTHREAD_START_ROUTINE)outputThread, (LPVOID)joysticks->states[joystickIndex].outputThreadData, 0, 0);
+	JoystickState* state = &joysticks->states[joystickIndex];
+	state->outputFile = CreateFileW(deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+	HidD_GetProductString(state->outputFile, state->productName, JoystickState::maxNameLength);
+	HidD_GetManufacturerString(state->outputFile, state->manufacturerName, JoystickState::maxNameLength);
 	joysticks->states[joystickIndex].connected = true;
 }
 
-void enumerateDevices(Joysticks* joysticks)
+void disconnectHIDJoystick(Joysticks* joysticks, const WCHAR* deviceName)
 {
-	// XInput
+	for (uint32_t i=Joysticks::maxXinputControllers; i<joysticks->count; ++i)
+	{
+		if (wcscmp(deviceName, joysticks->states[i].deviceName) != 0)
+		{
+			JoystickState* state = &joysticks->states[i];
+			state->connected = false;
+			if (state->outputFile != INVALID_HANDLE_VALUE)
+			{
+				DWORD bytesTransferred;
+				GetOverlappedResult(state->outputFile, &state->overlapped, &bytesTransferred, true);
+				CloseHandle(state->outputFile);
+			}
+		}
+	}
+}
+
+void updateConnectionStatus(Joysticks* joysticks, HANDLE device, WPARAM status)
+{
+	// Check all XInput devices
 	for (unsigned int playerIndex=0; playerIndex<Joysticks::maxXinputControllers; ++playerIndex) {
 		XINPUT_STATE state;
 		joysticks->states[playerIndex].connected = (XInputGetState(playerIndex, &state) == ERROR_SUCCESS);
 	}
 
-	// Set all HID joysticks to disconnected
-	for (unsigned int i=Joysticks::maxXinputControllers; i<joysticks->count; ++i) {
-		if (joysticks->states[i].connected) {
-			EnterCriticalSection(&joysticks->states[i].outputThreadData->criticalSection);
-			joysticks->states[i].outputThreadData->type = OutputThreadData::type_stop;
-			joysticks->states[i].connected = false;
-			CloseHandle(joysticks->states[i].outputThreadData->file);
-			CloseHandle(joysticks->states[i].outputThreadData->thread);
-			LeaveCriticalSection(&joysticks->states[i].outputThreadData->criticalSection);
-			WakeAllConditionVariable(&joysticks->states[i].outputThreadData->conditionVariable);
-		}
-	}
+	WCHAR deviceName[1024] = {0};
+	UINT deviceNameLength = sizeof(deviceName)/sizeof(*deviceName);
+	bool gotName = GetRawInputDeviceInfoW(device, RIDI_DEVICENAME, deviceName, &deviceNameLength) > 0;
 
-	// Find all connected joysticks
-	unsigned int deviceCount = 0;
-	GetRawInputDeviceList(0, &deviceCount, sizeof(RAWINPUTDEVICELIST));
-	RAWINPUTDEVICELIST* deviceLists = (RAWINPUTDEVICELIST*)malloc(sizeof(RAWINPUTDEVICELIST) * deviceCount);
-	GetRawInputDeviceList(deviceLists, &deviceCount, sizeof(RAWINPUTDEVICELIST));
-
-	for (unsigned int i = 0; i < deviceCount; ++i)
-	{
-		RID_DEVICE_INFO deviceInfo;
-		UINT deviceInfoSize = sizeof(deviceInfo);
-		bool gotInfo = GetRawInputDeviceInfo(deviceLists[i].hDevice, RIDI_DEVICEINFO, &deviceInfo, &deviceInfoSize) > 0;
-
-		WCHAR deviceName[1024] = {0};
-		UINT deviceNameLength = sizeof(deviceName)/sizeof(*deviceName);
-		bool gotName = GetRawInputDeviceInfoW(deviceLists[i].hDevice, RIDI_DEVICENAME, deviceName, &deviceNameLength) > 0;
-
-		if (gotInfo && gotName && deviceInfo.hid.usUsagePage==0x01 && (deviceInfo.hid.usUsage==0x04 || deviceInfo.hid.usUsage==0x05))
-		{
-			connectHIDJoystick(joysticks, deviceName);
-		}
+	if (gotName) {
+		if (status == GIDC_ARRIVAL) connectHIDJoystick(joysticks, deviceName);
+		else if (status == GIDC_REMOVAL) disconnectHIDJoystick(joysticks, deviceName);
 	}
 }
 
@@ -564,7 +549,7 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
 		updateRawInput(joysticks, lParam);
 	}
 	if (msg == WM_INPUT_DEVICE_CHANGE) {
-		enumerateDevices(joysticks);
+		updateConnectionStatus(joysticks, (HANDLE)lParam, wParam);
 	}
 	return DefWindowProc(hwnd, msg, wParam, lParam);
 }
@@ -573,7 +558,7 @@ Joysticks createJoysticks()
 {
 	Joysticks joysticks = {0};
 
-	// Create a window, as we need a window precedure to recieve raw input
+	// Create a window, as we need a window procedure to receive raw input events
 	WNDCLASSA wnd = { 0 };
 	wnd.hInstance = GetModuleHandle(0);
 	wnd.lpfnWndProc = WindowProcedure;
@@ -582,19 +567,20 @@ Joysticks createJoysticks()
 	joysticks.hwnd = CreateWindowA(wnd.lpszClassName, 0, 0, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, wnd.hInstance, 0);
 
 	// Register devices
-	RAWINPUTDEVICE rid;
-	rid.usUsagePage = 0x01;
-	rid.usUsage = 0;
-	rid.dwFlags = RIDEV_INPUTSINK | RIDEV_PAGEONLY | RIDEV_DEVNOTIFY;
-	rid.hwndTarget = joysticks.hwnd;
-	RegisterRawInputDevices(&rid, 1, sizeof(RAWINPUTDEVICE));
+	RAWINPUTDEVICE deviceList[2];
+	deviceList[0].usUsagePage = HID_USAGE_PAGE_GENERIC;
+	deviceList[0].usUsage = HID_USAGE_GENERIC_GAMEPAD;
+	deviceList[0].dwFlags = RIDEV_INPUTSINK | RIDEV_DEVNOTIFY;
+	deviceList[0].hwndTarget = joysticks.hwnd;
+	deviceList[1] = deviceList[0];
+	deviceList[1].usUsage = HID_USAGE_GENERIC_JOYSTICK;
+	RegisterRawInputDevices(deviceList, sizeof(deviceList)/sizeof(*deviceList), sizeof(RAWINPUTDEVICE));
 
 	// Allocate xbox controllers
 	joysticks.count = Joysticks::maxXinputControllers;
 	joysticks.states = (JoystickState*)calloc(joysticks.count, sizeof(JoystickState));
 	for (UINT i=0; i<Joysticks::maxXinputControllers; ++i) joysticks.states[i].type = JoystickTypeXbox;
 
-	enumerateDevices(&joysticks);
 	return joysticks;
 }
 
@@ -610,11 +596,6 @@ void updateJoysticks(Joysticks* joysticks)
 	while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
-	}
-
-	// Signal output thread
-	for (UINT i=Joysticks::maxXinputControllers; i<joysticks->count; ++i) {
-		WakeConditionVariable(&joysticks->states[i].outputThreadData->conditionVariable);
 	}
 
 	// Xbox controllers
@@ -672,7 +653,7 @@ const char* getInputName(Joysticks joysticks, unsigned int joystickIndex, unsign
 	switch (joysticks.states[joystickIndex].type)
 	{
 		case JoystickTypeGeneric: return genericInputNames[inputIndex];
-		case JoystickTypePS4: return ps4InputNames[inputIndex];
+		case JoystickTypeDualshock4: return ps4InputNames[inputIndex];
 		case JoystickTypeXbox: return xboxInputNames[inputIndex];
 		default: return 0;
 	}
@@ -701,12 +682,12 @@ int main()
 					state->lightRumble = state->currentInputs[XboxInputLeftTrigger];
 					state->heavyRumble = state->currentInputs[XboxInputRightTrigger];
 				}
-				else if (state->type == JoystickTypePS4) {
-					state->heavyRumble = state->currentInputs[PS4InputL2];
-					state->lightRumble = state->currentInputs[PS4InputR2];
-					state->ledRed = (state->currentInputs[PS4InputCircle] || state->currentInputs[PS4InputSquare])? 1.0f : 0.0f;
-					state->ledGreen = state->currentInputs[PS4InputTriangle];
-					state->ledBlue = (state->currentInputs[PS4InputX] || state->currentInputs[PS4InputSquare])? 1.0f : 0.0f;
+				else if (state->type == JoystickTypeDualshock4) {
+					state->heavyRumble = state->currentInputs[DS4InputL2];
+					state->lightRumble = state->currentInputs[DS4InputR2];
+					state->ledRed = (state->currentInputs[DS4InputCircle] || state->currentInputs[DS4InputSquare])? 1.0f : 0.0f;
+					state->ledGreen = state->currentInputs[DS4InputTriangle];
+					state->ledBlue = (state->currentInputs[DS4InputX] || state->currentInputs[DS4InputSquare])? 1.0f : 0.0f;
 				}
 			}
 		}

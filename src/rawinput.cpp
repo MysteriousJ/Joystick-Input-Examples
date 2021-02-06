@@ -9,13 +9,13 @@ void printRawInputData(LPARAM lParam)
 	UINT size = 0;
 	GetRawInputData((HRAWINPUT)lParam, RID_INPUT, NULL, &size, sizeof(RAWINPUTHEADER));
 	RAWINPUT* input = (RAWINPUT*)malloc(size);
-	UINT structsWritten = GetRawInputData((HRAWINPUT)lParam, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER));
-	if (structsWritten > 0)
+	bool gotInput = GetRawInputData((HRAWINPUT)lParam, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER)) > 0;
+	if (gotInput)
 	{
 		GetRawInputDeviceInfo(input->header.hDevice, RIDI_PREPARSEDDATA, 0, &size);
 		_HIDP_PREPARSED_DATA* data = (_HIDP_PREPARSED_DATA*)malloc(size);
-		UINT bytesWritten = GetRawInputDeviceInfo(input->header.hDevice, RIDI_PREPARSEDDATA, data, &size);
-		if (bytesWritten > 0)
+		bool gotPreparsedData = GetRawInputDeviceInfo(input->header.hDevice, RIDI_PREPARSEDDATA, data, &size) > 0;
+		if (gotPreparsedData)
 		{
 			HIDP_CAPS caps;
 			HidP_GetCaps(data, &caps);
@@ -72,16 +72,14 @@ int main()
 	HWND hwnd = CreateWindow(wnd.lpszClassName, 0, 0, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, wnd.hInstance, 0);
 
 	// Register devices
-	RAWINPUTDEVICE deviceDesc;
-	deviceDesc.usUsagePage = 0x01;
-	deviceDesc.dwFlags = RIDEV_INPUTSINK;
-	deviceDesc.hwndTarget = hwnd;
 
 	RAWINPUTDEVICE deviceList[2];
-	deviceDesc.usUsage = 0x04;
-	deviceList[0] = deviceDesc;
-	deviceDesc.usUsage = 0x05;
-	deviceList[1] = deviceDesc;
+	deviceList[0].usUsagePage = HID_USAGE_PAGE_GENERIC;
+	deviceList[0].usUsage = HID_USAGE_GENERIC_GAMEPAD;
+	deviceList[0].dwFlags = RIDEV_INPUTSINK;
+	deviceList[0].hwndTarget = hwnd;
+	deviceList[1] = deviceList[0];
+	deviceList[1].usUsage = HID_USAGE_GENERIC_JOYSTICK;
 
 	UINT deviceCount = sizeof(deviceList)/sizeof(*deviceList);
 	RegisterRawInputDevices(deviceList, deviceCount, sizeof(RAWINPUTDEVICE));

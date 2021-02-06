@@ -1,8 +1,10 @@
+//#define QWORD uint64_t
 #include <stdio.h>
-#include <Windows.h>
+#include <windows.h>
 #include <Dbt.h>
 #include <hidsdi.h>
 #include <hidpi.h>
+#include <inttypes.h>
 
 void printRawInputData(RAWINPUT* input)
 {
@@ -45,37 +47,30 @@ void printRawInputData(RAWINPUT* input)
 	free(data);
 }
 
-LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-	return DefWindowProc(hwnd, msg, wParam, lParam);
-}
-
 int main()
 {
-	// Create a window, as we need a window precedure to recieve raw input
-	WNDCLASS wnd = { 0 };
+	WNDCLASS wnd = {0};
 	wnd.hInstance = GetModuleHandle(0);
-	wnd.lpfnWndProc = WindowProcedure;
+	wnd.lpfnWndProc = DefWindowProc;
 	wnd.lpszClassName = TEXT("Raw input test");
 	RegisterClass(&wnd);
 	HWND hwnd = CreateWindow(wnd.lpszClassName, 0, 0, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, wnd.hInstance, 0);
 
-	// Register devices
-	RAWINPUTDEVICE deviceDesc;
-	deviceDesc.usUsagePage = 0x01;
-	deviceDesc.dwFlags = RIDEV_INPUTSINK;
-	deviceDesc.hwndTarget = hwnd;
+	RAWINPUTDEVICE deviceList[2] = {0};
+	
+	deviceList[0].usUsagePage = 0x01;
+	deviceList[0].usUsage = 0x04;
+	deviceList[0].dwFlags = RIDEV_INPUTSINK;
+	deviceList[0].hwndTarget = hwnd;
 
-	RAWINPUTDEVICE deviceList[2];
-	deviceDesc.usUsage = 0x04;
-	deviceList[0] = deviceDesc;
-	deviceDesc.usUsage = 0x05;
-	deviceList[1] = deviceDesc;
+	deviceList[1].usUsagePage = 0x01;
+	deviceList[1].usUsage = 0x05;
+	deviceList[1].dwFlags = RIDEV_INPUTSINK;
+	deviceList[1].hwndTarget = hwnd;
 
 	UINT deviceCount = sizeof(deviceList)/sizeof(*deviceList);
-	//RegisterRawInputDevices(deviceList, deviceCount, sizeof(RAWINPUTDEVICE));
+	RegisterRawInputDevices(deviceList, deviceCount, sizeof(RAWINPUTDEVICE));
 
-	// Message loop
 	while (1)
 	{
 		UINT size;
@@ -83,18 +78,16 @@ int main()
 		size *= 8;
 		RAWINPUT* rawInput = (RAWINPUT*)malloc(size);
 		UINT inputCount = GetRawInputBuffer(rawInput, &size, sizeof(RAWINPUTHEADER));
-		RAWINPUT* nextInput = rawInput;
-		if (inputCount > 0 && inputCount != -1)
+		if (inputCount != -1)
 		{
-			UINT inputIndex = 0;
-			while (inputIndex < inputCount)
+			RAWINPUT* nextInput = rawInput;
+			for (UINT i=0; i<inputCount; ++i)
 			{
 				printRawInputData(nextInput);
 				nextInput = NEXTRAWINPUTBLOCK(nextInput);
-				++inputIndex;
 			}
 		}
-		DefRawInputProc(&rawInput, inputCount, sizeof(RAWINPUTHEADER));
+		free(rawInput);
 		Sleep(16);
 	}
 
