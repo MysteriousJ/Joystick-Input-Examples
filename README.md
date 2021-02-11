@@ -63,11 +63,11 @@ Outputs are usually non-standard extensions, such as
 - LEDs
 - Audio
 
-Older joysticks supported HID force feedback, but not the controllers currently popular for games; XBox and PS4 controllers can't do rumble through HID. XInput provides a function to cause rumble on XBox controllers. You can set rumble and LED color on PS4 controllers by directly writing reverse-engineered data through RawInput.
+Specialty devices like flightsticks support HID force feedback, but not the controllers currently popular for games; XBox and PS4 controllers can't do rumble through HID. XInput provides a function to cause rumble on XBox controllers. You can set rumble and LED color on PS4 controllers by directly writing reverse-engineered data through RawInput.
 
-Some APIs have "Effects" for force feedback that get generalized and complex, but XBox and PS4 rumble is activated through two simple linear values—one for each motor in the gamepad. If a program never turns off rumble, XBox controllers will stop rumbling when the program terminates. PS4 controllers will continue to rumble, but stop after a few seconds of receiving no instructions.
+Some APIs have "Effects" for force feedback that get generalized and complex, but XBox and PS4 rumble is activated through two simple linear values—one for each motor in the gamepad. If a program never turns off rumble, XBox controllers will stop rumbling when the program terminates. PS4 controllers will continue to rumble on Windows, but stop after a few seconds of receiving no instructions.
 
-## APIs
+## Windows APIs
 
 ### Multimedia
 Multimedia Joystick is the simplest HID API for Windows. The `Ex` version of the functions and structs support up to 16 controllers at a time, each with up to 32 buttons, 6 axes, and a hat.
@@ -105,17 +105,7 @@ XInput is a simple API similar to multimedia joystick. It only works with XBox c
 
 XInputGetState() has been known to cause a several millisecond hang when trying to access non existent devices, for example, asking for player 2 input when only player 1 is plugged in. You'll probably want to query which controller indices are available once, and only get regular updates from devices you know are connected. See the [Detecting Device Changes](#detecting-device-changes) section for more details.
 
-### Libraries
-
-#### SDL
-The most popular joystick libraries are SDL's Joystick and Game Controller interfaces. Joystick provides generic button, axis, and hat data. Game Controller refers to inputs in terms of an xbox controller, giving uniform semantics to all kinds of controllers (see [Controller Database section](#controller-database)).
-
-SDL has a separate interface for force feedback. The `Effect` functions are similar to DirectInput's effects. The `Rumble` functions work with XBox controllers, but don't allow configuring the two motors individually.
-
-#### Steam
-The [Steam API provides joystick support](https://partner.steamgames.com/doc/api/isteaminput) with action mapping, rumble, and LED control, among other features. It's probably best to use this API when shipping your game on Steam for consistent user experience (though you'll still need other options if your game is available elsewhere).
-
-## Specialized I/O
+## Windows Specialized I/O
 In addition to XBox controllers, Playstation 4 and Nintendo Switch controllers are popular for PC games at time of writing. The basic functionality of these controllers is HID compliant and will work with any of the HID APIs, but you'll need specialized code if you want to make use of their non-standard features. You can check the product and vendor IDs of a device against a list of known devices to determine the type of controller.
 
 You can interact with a device by opening it with `CreateFile()`, using the device name from `GetRawInputDeviceInfoW`. This gives you maximum control over the device; you just have to know what bytes to use. It's a straightforward way to communicate with popular devices that are worth your time to hard code. [Read Jan Axelson's "HIDs up" article](https://www.embedded.com/hids-up/) for an introduction to low-level HID I/O.
@@ -137,6 +127,37 @@ The highlighted portion is the payload, which starts at byte 0x23, but the buffe
 
 ### XBox controllers
 If you really don't like the XInput API, it's possible to work with XBox controllers without it. [Mārtiņš Možeiko has an excellent example program](https://gist.github.com/mmozeiko/b8ccc54037a5eaf35432396feabbe435) that uses file I/O instead of the XInput API, and [Dave Midison has a great walkthrough of using Wireshark](https://www.partsnotincluded.com/understanding-the-xbox-360-wired-controllers-usb-data/) to reverse engineer the data needed.
+
+## Linux APIs
+Linux handles all the different data formats of controller input and output—even rumble—at the kernel level, leaving siginificantly less work for application code.
+
+Being Linux, joysticks are treated as streamed files, and are located in `/dev/input/`. Each joystick gets a file named `js`+number and `event`+number.
+
+Drivers handling everything has some limitations. I'm not sure if you can set LEDs through the standard joystick APIs. The touchpad on Playstation controllers is interpreted as a trackpad mouse, so a game couldn't use it for whatever it wants.
+
+A hat is treated as two axes as if it were an analog stick where the values can be `MIN_SHORT`, 0, or `MAX_SHORT`.
+
+### Joydev
+This interface is used with `js*` files.
+
+### Evdev
+Evdev opens you to a wider world of input devices. It's the newer and recommened interface that supports more features, though the joystick-specific parts are more hidden in the clutter. Evdev works with `event*` files in `/dev/input/`. You'll have to try opening all of them to find out which are joysticks.
+
+Obtain inputs by reading `input_event` structs after opening the `event*` file. `input_event` data is generic and contains a timestamp, type, code, and value. Semantics for type and code are defined in [linux/input-event-codes.h](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h).
+
+`input_event::type` will be `EV_KEY` (0x1) for buttons or `EV_ABS` (0x3) for axes. `input_event::code` describes which button or axis generated the event. Controllers that have special drivers, such as XBox and Dualshock 4, have meaningful names starting at `BTN_GAMEPAD` (0x130). Other generic HID controllers have generic names with no useful meaning, starting at `BTN_JOYSTICK` (0x120). `input_event::value` is 0 or 1 for buttons; `[MIN_SHORT, MAX_SHORT]` for axes.
+
+Evdev supports force feedback effects through [I/O controls](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input.h). The `evdev` example demonstrates `FF_RUMBLE`. See [the fftest source code](https://github.com/flosse/linuxconsole/blob/master/utils/fftest.c) for examples of other effect types.
+
+## Libraries
+
+### SDL
+The most popular joystick libraries are SDL's Joystick and Game Controller interfaces. Joystick provides generic button, axis, and hat data. Game Controller refers to inputs in terms of an xbox controller, giving uniform semantics to all kinds of controllers (see [Controller Database section](#controller-database)).
+
+SDL has a separate interface for force feedback. The `Effect` functions are similar to DirectInput's and Evdev's effects. The `Rumble` functions work with XBox controllers, but don't allow configuring the two motors individually. SDL reports that my Dualshock 4 controller does not support rumble.
+
+### Steam
+The [Steam API provides joystick support](https://partner.steamgames.com/doc/api/isteaminput) with action mapping, rumble, and LED control, among other features. It's probably best to use this API when shipping your game on Steam for consistent user experience (though you'll still need other options if your game is available elsewhere).
 
 ## Button configuration
 Ideally, players should have full control over how their controller inputs map to game actions through an intuitive interface. Some players will want to play your retro-style game with a Super Nintendo controller going through a random SNES-to-USB converter they found on ebay. Other players have physical disabilities and need to use unusual button mappings or custom-built controllers. Button config is crucial for player experience, but presents numerous complications for developers.
