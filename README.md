@@ -69,14 +69,14 @@ Some APIs have "Effects" for force feedback that get generalized and complex, bu
 
 ## Windows APIs
 
-### Multimedia
+### [Multimedia](https://docs.microsoft.com/en-us/windows/win32/multimedia/joysticks)
 Multimedia Joystick is the simplest HID API for Windows. The `Ex` version of the functions and structs support up to 16 controllers at a time, each with up to 32 buttons, 6 axes, and a hat.
 
 Getting the joystick state is one function call to `joyGetPosEx`, which takes a device index and a struct to fill with data. The device index ranges 0-15, and a joystick can be assigned any index, even if it's the only one connected at the time. You'll have to check all of the indices to find which are in use.
 
 Multimedia's functionality is quite limited. It doesn't give you any handles to hardware, so you can't tell what's an Xbox controller to use XInput instead. It also doesn't have any force feedback support, and is missing two axes (Dial and Slider) that are used by some controllers.
 
-### DirectInput
+### [DirectInput](https://docs.microsoft.com/en-us/previous-versions/windows/desktop/ee416842(v=vs.85))
 DirectInput is lower level and gives a bit more control. It uses a COM interface, so you'll be creating an object that's used to create other objects. First create a DirectInput object with `DirectInput8Create()`. You can use `IDirectInput*` or `IDirectInput8*`; the `8` versions give access to full features, though those features are not used in the `directinput` example.
 
 To find available joysticks you'll have to enumerate them through a callback function. DirectInput will invoke this function once for each joystick plugged into your machine.
@@ -87,7 +87,9 @@ One you've accuired devices, you can call `GetDeviceState` on them to fill a [DI
 
 Device Caps, short for capabilities, contains information about what features the device has, such as number of buttons.
 
-### RawInput
+DirectInput has an "Effects" interface for HID force feedback. Good for flightsticks, but there's no support for XBox or Playstation controller rumble.
+
+### [RawInput](https://docs.microsoft.com/en-us/windows/win32/inputdev/raw-input)
 The first step with RawInput is registering to receive `WM_INPUT` events. Unlike the other APIs, RawInput uses an event queue to get inputs. This has a distinct advantage of being able to get inputs that may have been missed between frames, such as a button being quickly pressed and released (though most games don't worry about this; it would have to be running well under 30fps for players to notice). To register for events, fill out one or more `RAWINPUTDEVICE` structs and pass an array of them to RegisterRawInputDevices(). The structs take the HID usage page and usages of devices for which to receive events, bit flags, and a handle to the window whose window procedure will receive the events. You can use your game window's existing procedure, or create a non-visible window to encapsulate joystick code. The `rawinput`, `specialized`, and `combined` examples use a non-visible window to get events in a terminal-based program.
 
 The `lParam` for a `WM_INPUT` message is a handle to the RawInput data for that event. Each `WM_INPUT` has its own RawInput data, so if it takes longer to process an event than the update frequency of the joystick, the queue can get seriously backed up. Also, each event's RawInput data contains the entire state of the controller, so you may only want to process the latest one.
@@ -100,7 +102,7 @@ Pass the RawInput data handle to GetRawInputData to get the actual input buffer,
 
 The [documentation for all this on MSDN](https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/_hid/) is pretty sparse and hard to understand. Open up hidpi.h for much better explanations. But I'm still not sure how the buttons and values are technically supposed to be parsed. There's a lot of strange nuance, like the return value of `HidP_GetUsageValue` is unsigned, but `LogicalMin` and `LogicalMax` of the value cap is signed. My XBox controller, through HID, says logical min is 0 and logical max is -1. I'm guessing that these were reinterpreted and sign extended from a smaller unsigned type. For the combined example, I assumed the value range is `[0, (2^bitsize)-1]`, but I don't know if this is true for all controllers.
 
-### XInput
+### [XInput](https://docs.microsoft.com/en-us/windows/win32/xinput/xinput-game-controller-apis-portal)
 XInput is a simple API similar to multimedia joystick. It only works with XBox controllers, but makes getting controller state and setting rumble nice and easy.
 
 XInputGetState() has been known to cause a several millisecond hang when trying to access non existent devices, for example, asking for player 2 input when only player 1 is plugged in. You'll probably want to query which controller indices are available once, and only get regular updates from devices you know are connected. See the [Detecting Device Changes](#detecting-device-changes) section for more details.
@@ -129,25 +131,23 @@ The highlighted portion is the payload, which starts at byte 0x23, but the buffe
 If you really don't like the XInput API, it's possible to work with XBox controllers without it. [Mārtiņš Možeiko has an excellent example program](https://gist.github.com/mmozeiko/b8ccc54037a5eaf35432396feabbe435) that uses file I/O instead of the XInput API, and [Dave Midison has a great walkthrough of using Wireshark](https://www.partsnotincluded.com/understanding-the-xbox-360-wired-controllers-usb-data/) to reverse engineer the data needed.
 
 ## Linux APIs
-Linux handles all the different data formats of controller input and output—even rumble—at the kernel level, leaving siginificantly less work for application code.
+Linux handles all the different data formats of controller input and output—even rumble—at the kernel-deriver level, leaving siginificantly less work for application code. Being Linux, joysticks are treated as streamed files, and are located in `/dev/input/`. Each joystick gets a file named `js`+number and `event`+number. By default, reading the file will block until an input event is available. Open the files in non-blocking mode to read them in a regular game loop: `read` will return an error if there were no new inputs to read.
 
-Being Linux, joysticks are treated as streamed files, and are located in `/dev/input/`. Each joystick gets a file named `js`+number and `event`+number.
+The joystick drivers make some asjustments to input data before it's exposed via APIs.
+- Hats are treated as two axes where the values can be `MIN_SHORT`, 0, or `MAX_SHORT`
+- The touchpad on Playstation controllers is interpreted as a trackpad mouse
 
-Drivers handling everything has some limitations. I'm not sure if you can set LEDs through the standard joystick APIs. The touchpad on Playstation controllers is interpreted as a trackpad mouse, so a game couldn't use it for whatever it wants.
+### [Joydev](https://www.kernel.org/doc/html/latest/input/joydev/joystick-api.html)
+This interface is used with `js*` files to read in `js_event` structs. Each event has a timestamp, type, number, and value. `js_event::type` indicates whether the event is for a button or axis. `js_event::number` is the index of the button or axis. `js_event::value` will be 0 or 1 for buttons and `[MIN_SHORT, MAX_SHORT]` for axes.
 
-A hat is treated as two axes as if it were an analog stick where the values can be `MIN_SHORT`, 0, or `MAX_SHORT`.
+You can get information about the controller using I/O controls. These are synchronous messages that get and set info for the device. The `joydev` example uses I/O controls to get button count, axis count, and device name.
 
-### Joydev
-This interface is used with `js*` files.
-
-### Evdev
+### [Evdev](https://www.kernel.org/doc/html/latest/input/input.html)
 Evdev opens you to a wider world of input devices. It's the newer and recommened interface that supports more features, though the joystick-specific parts are more hidden in the clutter. Evdev works with `event*` files in `/dev/input/`. You'll have to try opening all of them to find out which are joysticks.
 
-Obtain inputs by reading `input_event` structs after opening the `event*` file. `input_event` data is generic and contains a timestamp, type, code, and value. Semantics for type and code are defined in [linux/input-event-codes.h](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h).
+Obtain inputs by reading `input_event` structs after opening the `event*` file. `input_event` data is generic and contains a timestamp, type, code, and value. Semantics for type and code are defined in [linux/input-event-codes.h](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h). `input_event::type` will be `EV_KEY` (0x1) for buttons or `EV_ABS` (0x3) for axes. `input_event::code` describes which button or axis generated the event. Controllers that have special drivers, such as XBox and Dualshock 4, have meaningful names starting at `BTN_GAMEPAD` (0x130). Other generic HID controllers have generic names with no useful meaning, starting at `BTN_JOYSTICK` (0x120). `input_event::value` is 0 or 1 for buttons; `[MIN_SHORT, MAX_SHORT]` for axes.
 
-`input_event::type` will be `EV_KEY` (0x1) for buttons or `EV_ABS` (0x3) for axes. `input_event::code` describes which button or axis generated the event. Controllers that have special drivers, such as XBox and Dualshock 4, have meaningful names starting at `BTN_GAMEPAD` (0x130). Other generic HID controllers have generic names with no useful meaning, starting at `BTN_JOYSTICK` (0x120). `input_event::value` is 0 or 1 for buttons; `[MIN_SHORT, MAX_SHORT]` for axes.
-
-Evdev supports force feedback effects through [I/O controls](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input.h). The `evdev` example demonstrates `FF_RUMBLE`. See [the fftest source code](https://github.com/flosse/linuxconsole/blob/master/utils/fftest.c) for examples of other effect types.
+Evdev supports [force feedback effects through I/O controls](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input.h). The `evdev` example demonstrates `FF_RUMBLE`. See [the fftest source code](https://github.com/flosse/linuxconsole/blob/master/utils/fftest.c) for examples of other effect types.
 
 ## Libraries
 
