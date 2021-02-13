@@ -134,7 +134,7 @@ The highlighted portion is the payload, which starts at byte 0x23, but the buffe
 If you really don't like the XInput API, it's possible to work with XBox controllers without it. [Mārtiņš Možeiko has an excellent example program](https://gist.github.com/mmozeiko/b8ccc54037a5eaf35432396feabbe435) that uses file I/O instead of the XInput API, and [Dave Midison has a great walkthrough of using Wireshark](https://www.partsnotincluded.com/understanding-the-xbox-360-wired-controllers-usb-data/) to reverse engineer the data needed.
 
 ## Linux APIs
-Linux handles all the different data formats of controller input and output—even rumble—at the kernel-driver level, leaving siginificantly less work for application code. Being Linux, joysticks are treated as streamed files, and are located in `/dev/input/`. Each joystick gets a file named `js`+number and `event`+number. By default, reading the file will block until an input event is available. Open the files in non-blocking mode to read them in a regular game loop: `read` will return an error if there were no new inputs to read.
+Linux handles all the different data formats of controller input and output—even rumble—at the kernel-driver level, leaving significantly less work for application code. Being Linux, joysticks are treated as streamed files, and are located in `/dev/input/`. Each joystick gets a file named `js`+number and `event`+number. By default, reading the file will block until an input event is available. Open the files in non-blocking mode to read them in a regular game loop: `read` will return an error if there were no new inputs to read.
 
 The joystick drivers make some adjustments to input data before it's exposed via APIs.
 - Hats are treated as two axes where the values can be `MIN_SHORT`, 0, or `MAX_SHORT`
@@ -146,7 +146,7 @@ This interface is used with `js*` files to read in `js_event` structs. Each even
 You can get information about the controller using I/O controls. These are synchronous messages that get and set info for the device. The `joydev` example uses I/O controls to get button count, axis count, and device name.
 
 ### [Evdev](https://www.kernel.org/doc/html/latest/input/input.html)
-Evdev opens you to a wider world of input devices. It's the newer and recommened interface that supports more features, though the joystick-specific parts are more hidden in the clutter. Evdev works with `event*` files in `/dev/input/`. You'll have to try opening all of them to find out which are joysticks.
+Evdev opens you to a wider world of input devices. It's the newer and recommended interface that supports more features, though the joystick-specific parts are more hidden in the clutter. Evdev works with `event*` files in `/dev/input/`. You'll have to try opening all of them to find out which are joysticks.
 
 Obtain inputs by reading `input_event` structs after opening the `event*` file. `input_event` data is generic and contains a timestamp, type, code, and value. Semantics for type and code are defined in [linux/input-event-codes.h](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h). `input_event::type` will be `EV_KEY` (0x1) for buttons or `EV_ABS` (0x3) for axes. `input_event::code` describes which button or axis generated the event. Controllers that have special drivers, such as XBox and Dualshock 4, have meaningful names starting at `BTN_GAMEPAD` (0x130). Other generic HID controllers have generic names with no useful meaning, starting at `BTN_JOYSTICK` (0x120).
 

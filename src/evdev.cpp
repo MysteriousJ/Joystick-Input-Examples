@@ -177,42 +177,6 @@ int main()
 		joysticks[i] = openJoystick(fileName);
 	}
 
-	//char name[128];
-	//ioctl(joystick, EVIOCGNAME(sizeof(name)), name);
-	//printf("Name: %s - ", name);
-
-	//char did[128];
-	//ioctl(joystick, EVIOCGUNIQ(sizeof(did)), did);
-	//printf("DID: %s - ", did);
-
-	//char uid[128];
-	//ioctl(joystick, EVIOCGUNIQ(sizeof(uid)), uid);
-	//printf("UID: %s - ", uid);
-
-	//char props[128];
-	//ioctl(joystick, EVIOCGPROP(sizeof(props)), props);
-	//printf("Props: %s - ", props);
-
-	//ff_effect effect = {0};
-	//effect.type = FF_RUMBLE;
-	//effect.id = -1;
-	//effect.replay.length = 5000;
-	//effect.replay.delay = 0;
-	//effect.u.rumble.weak_magnitude = 0xc000;
-	//if (ioctl(joystick, EVIOCSFF, &effect) == -1) {
-	//	puts("error");
-	//}
-
-	//input_event play = {0};
-	//play.type = EV_FF;
-	//play.code = effect.id;
-	//play.value = 1;
-	//if (write(joystick, &play, sizeof(play)) == -1)
-	//{
-	//	puts("error writing");
-	//}
-
-
 	while (1)
 	{
 		for (unsigned int i=0; i<maxJoysticks; ++i)
