@@ -1,7 +1,7 @@
 # Joystick Input Examples
 This guide aims to provide everything you need to know about implementing joystick input in PC games. Prerequisites: familiarity with [Windows programming](https://en.wikibooks.org/wiki/Windows_Programming/Handles_and_Data_Types) and C-style C++.
 
-The `src` folder contains small example programs to illustrate implementation details. You can run them in Visual Studio by opening `Joystick Input Examples.sln` in the `vs` folder, or by running `build.bat` with a Visual Studio developer command line and launching the `.exe`s. The `combined` example uses RawInput and XInput to demostrate a more complete Windows implementation.
+The `src` folder contains small example programs to illustrate implementation details. You can build the Windows examples in Visual Studio by opening `Joystick Input Examples.sln` in the `vs` folder, or by running `build.bat` with a Visual Studio developer command line. The `combined` example uses RawInput and XInput to demostrate a more complete Windows implementation. You can build the Linux examples by running `make`.
 
 Special thanks to Handmade Network for fostering a community that values exploring details, as well as Martins for sharing his limitless knowledge.
 
@@ -77,7 +77,9 @@ Multimedia Joystick is the simplest HID API for Windows. The `Ex` version of the
 
 Getting the joystick state is one function call to `joyGetPosEx`, which takes a device index and a struct to fill with data. The device index ranges 0-15, and a joystick can be assigned any index, even if it's the only one connected at the time. You'll have to check all of the indices to find which are in use.
 
-Multimedia's functionality is quite limited. It doesn't give you any handles to hardware, so you can't tell what's an Xbox controller to use XInput instead. It also doesn't have any force feedback support, and is missing two axes (Dial and Slider) that are used by some controllers.
+Multimedia's functionality is quite limited. It doesn't have any force feedback support, and is missing two axes (Dial and Slider) that are used by some controllers. It also doesn't give you handles to hardware, so you can't easily tell what's an Xbox controller to use XInput instead.
+
+The `JOYCAPS` struct does contain vendor ID (`wMid`) and Product ID (`wPid`). These could be compared against a list of known XBox controller IDs. In addition, they can be used to look up the joystick's name in the registry. See [this example](https://github.com/Tasssadar/libenjoy/blob/master/src/libenjoy_win32.c#L50) in Vojtěch Boček's `libenjoy`.
 
 ### [DirectInput](https://docs.microsoft.com/en-us/previous-versions/windows/desktop/ee416842(v=vs.85))
 DirectInput is lower level and gives a bit more control. It uses a COM interface, so you'll be creating an object that's used to create other objects. First create a DirectInput object with `DirectInput8Create()`. You can use `IDirectInput*` or `IDirectInput8*`; the `8` versions give access to full features, though those features are not used in the `directinput` example.
@@ -109,6 +111,8 @@ The [documentation for all this on MSDN](https://docs.microsoft.com/en-us/window
 XInput is a simple API similar to multimedia joystick. It only works with XBox controllers, but makes getting controller state and setting rumble nice and easy.
 
 XInputGetState() has been known to cause a several millisecond hang when trying to access non existent devices, for example, asking for player 2 input when only player 1 is plugged in. You'll probably want to query which controller indices are available once, and only get regular updates from devices you know are connected. See the [Detecting Device Changes](#detecting-device-changes) section for more details.
+
+Windows 10 has the XInput DLL built-in and globally accessable for any application. If you're supporting Windows 7 or earlier, you'll need to ship an XInput DLL along with your game.
 
 ## Windows Specialized I/O
 In addition to XBox controllers, Playstation 4 and Nintendo Switch controllers are popular for PC games at time of writing. The basic functionality of these controllers is HID compliant and will work with any of the HID APIs, but you'll need specialized code if you want to make use of their non-standard features. You can check the product and vendor IDs of a device against a list of known devices to determine the type of controller.
