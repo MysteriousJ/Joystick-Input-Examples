@@ -3,6 +3,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
+#include <sys/inotify.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <linux/joystick.h>
@@ -90,37 +91,54 @@ struct Joystick
 	short rumbleEffectID;
 };
 
-Joystick openJoystick(const char* fileName)
+void openJoysticks(Joystick out_joysticks[], unsigned int maxJoysticks)
 {
-	Joystick j = {0};
-	int file = open(fileName, O_RDWR | O_NONBLOCK);
-	if (file != -1)
-	{
-		ioctl(file, EVIOCGNAME(sizeof(j.name)), j.name);
-		j.connected = true;
-		j.file = file;
-
-		// Setup axes
-		for (unsigned int i=0; i<Joystick::maxAxes; ++i)
+	char fileName[32];
+	for (int i=0; i<32; ++i) {
+		sprintf(fileName, "/dev/input/event%d", i);
+		int file = open(fileName, O_RDWR | O_NONBLOCK);
+		if (file != -1)
 		{
-			input_absinfo axisInfo;
-			if (ioctl(file, EVIOCGABS(i), &axisInfo) != -1)
-			{
-				j.axes[i].min = axisInfo.minimum;
-				j.axes[i].max = axisInfo.maximum;
-			}
-		}
+			Joystick j = {0};
+			j.connected = true;
+			j.file = file;
 
-		// Setup rumble
-		ff_effect effect = {0};
-		effect.type = FF_RUMBLE;
-		effect.id = -1;
-		if (ioctl(file, EVIOCSFF, &effect) != -1) {
-			j.rumbleEffectID = effect.id;
-			j.hasRumble = true;
+			// Get name
+			ioctl(file, EVIOCGNAME(sizeof(j.name)), j.name);
+
+			// Setup axes
+			for (unsigned int i=0; i<Joystick::maxAxes; ++i)
+			{
+				input_absinfo axisInfo;
+				if (ioctl(file, EVIOCGABS(i), &axisInfo) != -1)
+				{
+					j.axes[i].min = axisInfo.minimum;
+					j.axes[i].max = axisInfo.maximum;
+				}
+			}
+
+			// Setup rumble
+			ff_effect effect = {0};
+			effect.type = FF_RUMBLE;
+			effect.id = -1;
+			if (ioctl(file, EVIOCSFF, &effect) != -1) {
+				j.rumbleEffectID = effect.id;
+				j.hasRumble = true;
+			}
+
+			out_joysticks[i] = j;
 		}
 	}
-	return j;
+}
+
+void closeJoysticks(Joystick joysticks[], unsigned int maxJoysticks)
+{
+	for (int i=0; i<32; ++i) {
+		if (joysticks[i].connected) {
+			close(joysticks[i].file);
+			joysticks[i].connected = false;
+		}
+	}
 }
 
 void readJoystickInput(Joystick* joystick)
@@ -150,18 +168,13 @@ void setJoystickRumble(Joystick joystick, short weakRumble, short strongRumble)
 		effect.replay.delay = 0;
 		effect.u.rumble.weak_magnitude = weakRumble;
 		effect.u.rumble.strong_magnitude = strongRumble;
-		if (ioctl(joystick.file, EVIOCSFF, &effect) == -1) {
-			puts("error");
-		}
+		ioctl(joystick.file, EVIOCSFF, &effect);
 
 		input_event play = {0};
 		play.type = EV_FF;
 		play.code = joystick.rumbleEffectID;
 		play.value = 1;
-		if (write(joystick.file, &play, sizeof(play)) == -1)
-		{
-			puts("error writing");
-		}
+		write(joystick.file, &play, sizeof(play));
 	}
 }
 
@@ -169,16 +182,22 @@ int main()
 {
 	const unsigned int maxJoysticks = 32;
 	Joystick joysticks[maxJoysticks] = {0};
+	openJoysticks(joysticks, maxJoysticks);
 
-	char fileName[32];
-	int joystick = 0;
-	for (int i=0; i<32; ++i) {
-		sprintf(fileName, "/dev/input/event%d", i);
-		joysticks[i] = openJoystick(fileName);
-	}
+	int deviceChangeNotify = inotify_init1(IN_NONBLOCK);
+	inotify_add_watch(deviceChangeNotify, "/dev/input", IN_ATTRIB);
 
 	while (1)
 	{
+		// Update which joysticks are connected
+		inotify_event event;
+		if (read(deviceChangeNotify, &event, sizeof(event)+16) != -1)
+		{
+			closeJoysticks(joysticks, maxJoysticks);
+			openJoysticks(joysticks, maxJoysticks);
+		}
+
+		// Update and print inputs for each connected joystick
 		for (unsigned int i=0; i<maxJoysticks; ++i)
 		{
 			if (joysticks[i].connected)
