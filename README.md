@@ -1,7 +1,7 @@
 # Joystick Input Examples
 This guide aims to provide everything you need to know about implementing joystick input in PC games. Prerequisites: familiarity with [Windows programming](https://en.wikibooks.org/wiki/Windows_Programming/Handles_and_Data_Types) and C-style C++.
 
-The `src` folder contains small example programs to illustrate implementation details. You can build the Windows examples in Visual Studio by opening `Joystick Input Examples.sln` in the `vs` folder, or by running `build.bat` with a Visual Studio developer command line. The `combined` example uses RawInput and XInput to demostrate a more complete Windows implementation. You can build the Linux examples by running `make`.
+The `src` folder contains small example programs to illustrate implementation details. You can build the Windows examples in Visual Studio by opening `Joystick Input Examples.sln` in the `vs` folder, or by running `build.bat` with a Visual Studio developer command line. The `combined` example uses RawInput and XInput to demonstrate a more complete Windows implementation. You can build the Linux examples by running `make`.
 
 Special thanks to Handmade Network for fostering a community that values exploring details, as well as Martins for sharing his limitless knowledge.
 
@@ -161,7 +161,7 @@ Evdev supports [force feedback effects through I/O controls](https://github.com/
 ## Libraries
 
 ### SDL
-The most popular joystick libraries are SDL's Joystick and Game Controller interfaces. Joystick provides generic button, axis, and hat data. Game Controller refers to inputs in terms of an xbox controller, giving uniform semantics to all kinds of controllers (see [Controller Database section](#controller-database)).
+The most popular joystick libraries are SDL's Joystick and Game Controller interfaces. Joystick provides generic button, axis, and hat data. Game Controller refers to inputs in terms of an XBox controller, giving uniform semantics to all kinds of controllers (see [Controller Database section](#controller-database)).
 
 SDL has a separate interface for force feedback. The `Effect` functions are similar to DirectInput's and Evdev's effects. The `Rumble` functions work with XBox controllers, but don't allow configuring the two motors individually. SDL reports that my Dualshock 4 controller does not support rumble.
 
@@ -180,14 +180,14 @@ PS4 controllers have another problem: R2 and L2 report both a button and an axis
 So what of generic HID devices? How do we correctly map inputs when they could be anything?
 
 ### Controller Database
-SDL's Game Controller interface brings the idea of expressing every controller one could possibly plug into a PC in terms of an XBox controller. They crowd-sourced a database that maps hardware IDs to button configurations, eliminating the headaches of generic input. You can then apply your game's own mapping, and effectively only worry about xbox controllers while supporting many more than that. Another advantage is more accurate device names to display to users; the Playstation 4 controller calls itself "Wireless Controller", but a database can call it "PS4 Controller" or "Dualshock 4."
+SDL's Game Controller interface brings the idea of expressing every controller one could possibly plug into a PC in terms of an XBox controller. They crowd-sourced a database that maps hardware IDs to button configurations, eliminating the headaches of generic input. You can then apply your game's own mapping, and effectively only worry about XBox controllers while supporting many more than that. Another advantage is more accurate device names to display to users; the Playstation 4 controller calls itself "Wireless Controller", but a database can call it "PS4 Controller" or "Dualshock 4."
 
 SDL includes the database in its source code and is ready to go if you use the Game Controller interface. You can also [download the database](https://github.com/gabomdq/SDL_GameControllerDB) and parse it yourself if you're not using SDL.
 
 The one problem with the database approach is that it doesn't work with USB converters that support multiple types of controllers, as they all share one hardware ID. For example, I have a [converter which supports PS2, Gamecube, and original XBox controllers](https://www.mayflash.com/Products/UNIVERSAL/PC035.html). Somebody at some point made an entry in the SDL database for this device and mapped it for Gamecube controllers. I use it for a PS2 controller, so the mapping is totally wrong and renders some buttons unusable. Still, the database approach will work fantastically well for nearly all of your players.
 
 ### Calibration
-I remember many times hastily plugging a controller into a Gamecube, bumping an analog stick while doing so, causing it to drift. Pushing it to the left made the cursor on character select drift to the right; pushing it up caused drifting downward. This is because the gamecube calibrates the controller when it's plugged in. Whatever the analog stick's current axis values were are now considered the rest position, and all inputs are relative to that. If an axis is calibrated for a negative value being the rest position, the axis' physical neutral will appear to be a positive input. Unplugging and reconnecting the controller—or holding down X, Y, and start—recalibrates it.
+I remember many times hastily plugging a controller into a Gamecube, bumping an analog stick while doing so, causing it to drift. Pushing it to the left made the cursor on character select drift to the right; pushing it up caused drifting downward. This is because the Gamecube calibrates the controller when it's plugged in. Whatever the analog stick's current axis values were are now considered the rest position, and all inputs are relative to that. If an axis is calibrated for a negative value being the rest position, the axis' physical neutral will appear to be a positive input. Unplugging and reconnecting the controller—or holding down X, Y, and start—recalibrates it.
 
 A PC game could also use calibration to account for unknown rest positions of axes. By sampling input state and taking it as the rest values when starting button config, a trigger that's `LONG_MIN` at rest would only appear to go in the positive direction. The downside is potential player confusion if they were bumping an analog stick when starting button config.
 
