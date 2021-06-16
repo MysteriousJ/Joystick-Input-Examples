@@ -46,8 +46,6 @@ The XInput API is one of the simplest APIs Microsoft has ever made and is extrem
 
 XBox controllers also work on older games that only implemented support for HID. The XInput driver creates a virtual HID device and forwards inputs to it. Effectively there are two copies of each XBox controller on your system, the XInput version and the HID version. The HID version comes with a big, annoying downside: the XInput driver combines both shoulder tiggers into one axis when converted to HID. Pressing RT makes the axis go in the negative direction, and LT makes it go in the positive direction. If you press both at the same time, it's the same as pressing neither.
 
-So, you need XInput to get full correct input from XBox controllers, and you need HID to get input from any other controller. In order to do joystick support well, a game needs to implement support for both. You can get a list of all HID devices on your system to check which ones are XBox controllers and ignore them with the HID API, then use XInput to process them. There's unfortunately no way to associate a virtual HID device with an XInput player index.
-
 ## Inputs
 The basic inputs on joysticks are
 - Buttons, delivered as bitflags, booleans, or a list of which are pressed.
@@ -71,6 +69,7 @@ Specialty devices like flightsticks support HID force feedback, but not the cont
 Some APIs have "Effects" for force feedback that get generalized and complex, but XBox and PS4 rumble is activated through two simple linear values—one for each motor in the gamepad. If a program never turns off rumble, XBox controllers will stop rumbling when the program terminates. PS4 controllers will continue to rumble on Windows, but stop after a few seconds of receiving no instructions.
 
 ## Windows APIs
+On Windows 10, you can use the Windows Runtime API to get correct input from both XInput and HID devices. To support older versions of Windows, you will need to use the XInput API to get input from XBox controllers with correct shoulder trigger values, and one of the HID APIs to get input from any other controllers. When enumerating connected HID devices, you can check which ones are XBox controllers and ignore them with the HID API, then use XInput to process them. There's unfortunately no way to associate a virtual HID device with an XInput player index.
 
 ### [Multimedia](https://docs.microsoft.com/en-us/windows/win32/multimedia/joysticks)
 Multimedia Joystick is the simplest HID API for Windows. The `Ex` version of the functions and structs support up to 16 controllers at a time, each with up to 32 buttons, 6 axes, and a hat.
@@ -113,6 +112,9 @@ XInput is a simple API similar to multimedia joystick. It only works with XBox c
 XInputGetState() has been known to cause a several millisecond hang when trying to access non existent devices, for example, asking for player 2 input when only player 1 is plugged in. You'll probably want to query which controller indices are available once, and only get regular updates from devices you know are connected. See the [Detecting Device Changes](#detecting-device-changes) section for more details.
 
 Windows 10 has the XInput DLL built-in and globally accessable for any application. If you're supporting Windows 7 or earlier, you'll need to ship an XInput DLL along with your game.
+
+### Windows Runtime (UWP/Windows.Gaming.Input)
+
 
 ## Windows Specialized I/O
 In addition to XBox controllers, Playstation 4 and Nintendo Switch controllers are popular for PC games at time of writing. The basic functionality of these controllers is HID compliant and will work with any of the HID APIs, but you'll need specialized code if you want to make use of their non-standard features. You can check the product and vendor IDs of a device against a list of known devices to determine the type of controller.
