@@ -17,7 +17,8 @@ Special thanks to Handmade Network for fostering a community that values explori
 	- [Multimedia](#multimedia)
 	- [DirectInput](#directinput)
 	- [RawInput](#rawinput)
-	- [XInput](#xinput)
+	- [XInput](#xinput-1)
+	- [WinRT](#windows-runtime-uwpwindowsgaminginput)
 - [Windows Specialized I/O](#windows-specialized-io)
 	- [Dualshock 4](#dualshock-4)
 	- [XBox Controllers](#xbox-controllers)
@@ -115,7 +116,7 @@ XInputGetState() has been known to cause a several millisecond hang when trying 
 
 Windows 10 has the XInput DLL built-in and globally accessable for any application. If you're supporting Windows 7 or earlier, you'll need to ship an XInput DLL along with your game.
 
-### [Windows Runtime](UWP/Windows.Gaming.Input)](https://docs.microsoft.com/en-us/uwp/api/windows.gaming.input)
+### [Windows Runtime (UWP/Windows.Gaming.Input)](https://docs.microsoft.com/en-us/uwp/api/windows.gaming.input)
 This API is part of Microsoft's Univeral Windows Platform, and is available starting on Windows 10. It is a "modern C++" design, so it does not have bindings for C or C++ versions ealier than C++17.
 
 The Windows.Gaming.Input API has classes for several kinds of controllers, including ArcadeStick, FlightStick, Gamepad, and RacingWheel, giving you access to semantic information about their inputs. The downside is that these will only work with a few specific devices (mostly devices for XBox). As an example, my Playstation 3 arcade stick is not available as a `winrt::Windows::Gaming::Input::ArcadeStick`. All of the devices available in these speciallized classes will also be accessible through RawGameController. This class supports HID devices, but also uses XInput for XBox controllers, so it reports correct values for the XBox shoulder triggers and supports force feedback on XBox controllers.
