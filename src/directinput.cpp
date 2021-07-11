@@ -15,7 +15,7 @@ BOOL CALLBACK DirectInputEnumDevicesCallback(LPCDIDEVICEINSTANCE instance, LPVOI
 	
 	IDirectInputDevice8* device;
 	joysticks->dinput->CreateDevice(instance->guidInstance, &device, NULL);
-	device->SetCooperativeLevel(GetActiveWindow(), DISCL_NONEXCLUSIVE);
+	device->SetCooperativeLevel(GetActiveWindow(), DISCL_BACKGROUND | DISCL_NONEXCLUSIVE);
 	device->SetDataFormat(&c_dfDIJoystick);
 	device->Acquire();
 

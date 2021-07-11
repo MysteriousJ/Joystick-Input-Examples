@@ -9,3 +9,5 @@ cl %options% "src/rawinput_buffered.cpp" /link "kernel32.lib" "user32.lib" "hid.
 cl %options% "src/specialized.cpp" /link "kernel32.lib" "user32.lib" "hid.lib" /OUT:"specialized.exe"
 cl %options% "src/xinput.cpp" /link "kernel32.lib" "user32.lib" "Xinput.lib" /OUT:"xinput.exe"
 cl %options% "src/combined.cpp" /link "kernel32.lib" "user32.lib" "hid.lib" "Xinput.lib" /OUT:"combined.exe"
+cl %options% "src/config.cpp" /link "kernel32.lib" "user32.lib" "dinput8.lib" "dxguid.lib" /OUT:"config.exe"
+cl %options% "src/winrt.cpp" /std:c++17 /link "kernel32.lib" "user32.lib" /OUT:"winrt.exe"
