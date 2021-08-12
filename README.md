@@ -114,7 +114,7 @@ XInput is a simple API similar to multimedia joystick. It only works with XBox c
 
 XInputGetState() has been known to cause a several millisecond hang when trying to access non existent devices, for example, asking for player 2 input when only player 1 is plugged in. You'll probably want to query which controller indices are available once, and only get regular updates from devices you know are connected. See the [Detecting Device Changes](#detecting-device-changes) section for more details.
 
-Windows 10 has the XInput DLL built-in and globally accessable for any application. If you're supporting Windows 7 or earlier, you'll need to ship an XInput DLL along with your game.
+[There are several versions of XInput](https://docs.microsoft.com/en-us/windows/win32/xinput/xinput-versions). v9.1.0 (link with xinput9_1_0.lib) ships with Windows Vista and later. v1.4 (link with xinput.lib) ships with Windows 10 and later. For v1.3, you would have to provide a DLL to users along with your application.
 
 ### [Windows Runtime (UWP/Windows.Gaming.Input)](https://docs.microsoft.com/en-us/uwp/api/windows.gaming.input)
 This API is part of Microsoft's Universal Windows Platform, and is available starting on Windows 10. It is a "modern C++" design, so it does not have bindings for C or C++ versions earlier than C++17.
