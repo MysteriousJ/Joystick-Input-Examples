@@ -1,6 +1,6 @@
-#pragma comment(lib, "windowsapp")
 #include <list>
 #include <winrt/Windows.Gaming.Input.h>
+#include <winrt/Windows.Foundation.h>
 #include <ppl.h>
 #include <Windows.h>
 
@@ -48,6 +48,7 @@ int main()
 		});
 
 	while (1) {
+		Sleep(16);
 		MSG message;
 		while (PeekMessageA(&message, 0, 0, 0, true)) {
 			TranslateMessage(&message);
@@ -81,7 +82,6 @@ int main()
 				puts("");
 			}
 		}
-		Sleep(16);
 	}
 	return 0;
 }
