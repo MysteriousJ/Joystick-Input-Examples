@@ -12,6 +12,7 @@ struct Joystick
 
 int main()
 {
+	winrt::init_apartment();
 	WNDCLASSA wnd = {0};
 	wnd.hInstance = GetModuleHandleA(0);
 	wnd.lpfnWndProc = DefWindowProcA;
