@@ -1,4 +1,4 @@
-//#define QWORD uint64_t
+#define QWORD uint64_t
 #include <stdio.h>
 #include <windows.h>
 #include <Dbt.h>
