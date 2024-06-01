@@ -19,6 +19,7 @@ Special thanks to Handmade Network for fostering a community that values explori
 	- [RawInput](#rawinput)
 	- [XInput](#xinput-1)
 	- [WinRT](#windows-runtime-uwpwindowsgaminginput)
+	- [GameInput](#gameinput)
 - [Windows Specialized I/O](#windows-specialized-io)
 	- [Dualshock 4](#dualshock-4)
 	- [XBox Controllers](#xbox-controllers)
@@ -130,6 +131,13 @@ Instead, it seems better to use the `Added` and `Removed` callback events to kee
 You can continue reading from instances of controllers even after they are disconnected; they will return inputs as all zeros.
 
 The `GetButtonLabel()` method of each class returns a semantic for the specified button (see [Displaying Physical Buttons](#displaying-physical-buttons)) as an enumeration value. The [GameControllerButtonLabel](https://docs.microsoft.com/en-us/uwp/api/windows.gaming.input.gamecontrollerbuttonlabel) enum has all the XBox buttons you would expect, but also Cross, Circle, Square, and Triangle—the buttons on Playstation controllers. Unfortunately, these are not available by default: my PS4 controller returns `None` for every button. It would allow Sony to write their own PlaystationController class as a library for developers, but I don't believe they have done so at time of writing.
+
+### [GameInput](https://learn.microsoft.com/en-us/gaming/gdk/_content/gc/input/overviews/input-overview)
+Similar to Windows.Gaming.Input, GDK GameInput aims to combine HID and XInput into one easier-to-use interface, with categoris such as Gamepad, Racing Wheel, and Arcade Stick for devices Microsoft recognizes, and "Controller" being the catch-all. At time of writing, [it does not work with XBox 360 controllers](https://github.com/microsoft/GDK/issues/39), and the controller's name to display to users is null for every device I own.
+
+You will need the [NuGet package containing GameInput.h and GameInput.lib](https://www.nuget.org/packages/Microsoft.GameInput) in order to use this API. The Visual Studio Solution file in this repo, `vs/Joystick Input Examples.sln`, is set up to download the NuGet package automatically. For other build systems, you can download the package directly and open it as a zip archive to extract the header and library files.
+
+Other APIs have you enumerate devices, then check inputs for each of them. GameInput is architected around an "input stream" where you iterate over inputs, then query the device from the input to figure out what to do with it. In practice, however, this doesn't seem to actually work. `GetCurrentInput()` supplies readings for only one device that matches the filters, and `GetNextReading()` expects the device to be specified. The [gameinput.cpp](src/gameinput.cpp) example therefore enumerates devices and specifies them to `GetCurrentInput()`. By using an `IGameInputDispatcher`, the callback to respond to device connection updates can be ran on the main thread.
 
 ## Windows Specialized I/O
 In addition to XBox controllers, Playstation 4 and Nintendo Switch controllers are popular for PC games at time of writing. The basic functionality of these controllers is HID compliant and will work with any of the HID APIs, but you'll need specialized code if you want to make use of their non-standard features. You can check the product and vendor IDs of a device against a list of known devices to determine the type of controller.
