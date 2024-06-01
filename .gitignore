@@ -3,8 +3,5 @@ Release
 .vs
 tags
 *.user
-*.exe
-*.ilk
-*.obj
-*.pdb
-*.lnk
+/build
+/vs/packages
