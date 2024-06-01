@@ -3,7 +3,7 @@ This guide aims to provide everything you need to know about implementing joysti
 
 TLDR: if you're a solo indie developer who just wants good basic joystick support, use SDL Game Controller. It's a well designed library that offloads tons of headaches.
 
-The `src` folder contains small example programs to illustrate implementation details. You can build the Windows examples in Visual Studio by opening `Joystick Input Examples.sln` in the `vs` folder, or by running `build.bat` with a Visual Studio developer command line. The [combined.cpp](src/combined.cpp) example uses RawInput and XInput to demonstrate a more complete Windows implementation. You can build the Linux examples by running `make`.
+The `src` folder contains small example programs to illustrate implementation details. You can build the Windows examples in Visual Studio by opening `Joystick Input Examples.sln` in the `vs` folder, or by running the `build` batch files with a Visual Studio developer command line. The [combined.cpp](src/combined.cpp) example uses RawInput and XInput to demonstrate a more complete Windows implementation. You can build the Linux examples by running `make`.
 
 Special thanks to Handmade Network for fostering a community that values exploring details, as well as Martins for sharing his limitless knowledge.
 
@@ -135,7 +135,7 @@ The `GetButtonLabel()` method of each class returns a semantic for the specified
 ### [GameInput](https://learn.microsoft.com/en-us/gaming/gdk/_content/gc/input/overviews/input-overview)
 Similar to Windows.Gaming.Input, GDK GameInput aims to combine HID and XInput into one easier-to-use interface, with categoris such as Gamepad, Racing Wheel, and Arcade Stick for devices Microsoft recognizes, and "Controller" being the catch-all. At time of writing, [it does not work with XBox 360 controllers](https://github.com/microsoft/GDK/issues/39), and the controller's name to display to users is null for every device I own.
 
-You will need the [NuGet package containing GameInput.h and GameInput.lib](https://www.nuget.org/packages/Microsoft.GameInput) in order to use this API. The Visual Studio Solution file in this repo, `vs/Joystick Input Examples.sln`, is set up to download the NuGet package automatically. For other build systems, you can download the package directly and open it as a zip archive to extract the header and library files.
+You will need the [NuGet package containing GameInput.h and GameInput.lib](https://www.nuget.org/packages/Microsoft.GameInput) in order to use this API. The Visual Studio Solution file in this repo, `vs/Joystick Input Examples.sln`, is set up to download the NuGet package automatically. For other  systems, you can download the package directly and open it as a zip archive to extract the header and library files.
 
 Other APIs have you enumerate devices, then check inputs for each of them. GameInput is architected around an "input stream" where you iterate over inputs, then query the device from the input to figure out what to do with it. In practice, however, this doesn't seem to actually work. `GetCurrentInput()` supplies readings for only one device that matches the filters, and `GetNextReading()` expects the device to be specified. The [gameinput.cpp](src/gameinput.cpp) example therefore enumerates devices and specifies them to `GetCurrentInput()`. By using an `IGameInputDispatcher`, the callback to respond to device connection updates can be ran on the main thread.
 
