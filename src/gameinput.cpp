@@ -44,10 +44,6 @@ int main()
 			IGameInputReading* reading;
 			if (SUCCEEDED(input->GetCurrentReading(GameInputKindController, joysticks.devices[i], &reading)))
 			{
-				IGameInputDevice* device;
-				reading->GetDevice(&device);
-				const GameInputDeviceInfo* deviceInfo = device->GetDeviceInfo();
-
 				printf("Joystick %d, ", i);
 				reading->GetControllerAxisState(ARRAYSIZE(axes), axes);
 				reading->GetControllerSwitchState(ARRAYSIZE(switches), switches);
@@ -65,8 +61,6 @@ int main()
 					if (buttons[i]) printf("%d ", i);
 				}
 				puts("");
-				fflush(stdout);
-				device->Release();
 				reading->Release();
 			}
 		}
