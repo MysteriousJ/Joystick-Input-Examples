@@ -24,8 +24,8 @@ struct JoystickState
 	float currentInputs[inputCount];
 	float previousInputs[inputCount];
 	wchar_t deviceName[maxNameLength];
-	char productName[maxNameLength];
-	char manufacturerName[maxNameLength];
+	wchar_t productName[maxNameLength];
+	wchar_t manufacturerName[maxNameLength];
 
 	// Outputs
 	float lightRumble;
