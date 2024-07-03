@@ -21,6 +21,7 @@ struct JoystickState
 	// Inputs
 	bool connected;
 	JoystickType type;
+	HANDLE deviceHandle;
 	float currentInputs[inputCount];
 	float previousInputs[inputCount];
 	wchar_t deviceName[maxNameLength];
@@ -270,9 +271,9 @@ const char* genericInputNames[] = {
 	"Controller-Hat Down",
 };
 
-bool isXboxController(char* deviceName)
+bool isXboxController(WCHAR* deviceName)
 {
-	return strstr(deviceName, "IG_");
+	return wcsstr(deviceName, L"IG_");
 }
 
 bool isDualshock4(RID_DEVICE_INFO_HID info)
@@ -460,15 +461,11 @@ void updateRawInput(Joysticks* joysticks, LPARAM lParam)
 		_HIDP_PREPARSED_DATA* data = (_HIDP_PREPARSED_DATA*)malloc(size);
 		bool gotPreparsedData = GetRawInputDeviceInfo(input->header.hDevice, RIDI_PREPARSEDDATA, data, &size) > 0;
 
-		WCHAR deviceName[1024] = {0};
-		UINT deviceNameLength = sizeof(deviceName)/sizeof(*deviceName);
-		bool gotName = GetRawInputDeviceInfoW(input->header.hDevice, RIDI_DEVICENAME, deviceName, &deviceNameLength) > 0;
-
-		if (gotInfo && gotPreparsedData && gotName)
+		if (gotInfo && gotPreparsedData)
 		{
 			for (UINT i=Joysticks::maxXinputControllers; i<joysticks->count; ++i)
 			{
-				if (wcscmp(deviceName, joysticks->states[i].deviceName) == 0)
+				if (input->header.hDevice == joysticks->states[i].deviceHandle)
 				{
 					JoystickState* state = &joysticks->states[i];
 					if (isDualshock4(deviceInfo.hid)) {
@@ -485,32 +482,38 @@ void updateRawInput(Joysticks* joysticks, LPARAM lParam)
 	free(input);
 }
 
-void connectHIDJoystick(Joysticks* joysticks, const WCHAR* deviceName)
+void connectHIDJoystick(Joysticks* joysticks, HANDLE deviceHandle)
 {
-	unsigned int joystickIndex = Joysticks::maxXinputControllers;
-	while (joystickIndex < joysticks->count && wcscmp(deviceName, joysticks->states[joystickIndex].deviceName) != 0) {
-		++joystickIndex;
-	}
-	if (joystickIndex == joysticks->count) {
-		joysticks->count += 1;
-		joysticks->states = (JoystickState*)realloc(joysticks->states, joysticks->count*sizeof(JoystickState));
-		JoystickState newState = {0};
-		wcscpy_s(newState.deviceName, deviceName);
-		joysticks->states[joystickIndex] = newState;
-	}
+	WCHAR deviceName[1024] = {0};
+	UINT deviceNameLength = sizeof(deviceName)/sizeof(*deviceName);
+	GetRawInputDeviceInfoW(deviceHandle, RIDI_DEVICENAME, deviceName, &deviceNameLength);
+	if (!isXboxController(deviceName)) {
+		unsigned int joystickIndex = Joysticks::maxXinputControllers;
+		while (joystickIndex < joysticks->count && wcscmp(deviceName, joysticks->states[joystickIndex].deviceName) != 0) {
+			++joystickIndex;
+		}
+		if (joystickIndex == joysticks->count) {
+			joysticks->count += 1;
+			joysticks->states = (JoystickState*)realloc(joysticks->states, joysticks->count*sizeof(JoystickState));
+			JoystickState newState = {0};
+			joysticks->states[joystickIndex] = newState;
+		}
 
-	JoystickState* state = &joysticks->states[joystickIndex];
-	state->outputFile = CreateFileW(deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
-	HidD_GetProductString(state->outputFile, state->productName, JoystickState::maxNameLength);
-	HidD_GetManufacturerString(state->outputFile, state->manufacturerName, JoystickState::maxNameLength);
-	joysticks->states[joystickIndex].connected = true;
+		JoystickState* state = &joysticks->states[joystickIndex];
+		state->deviceHandle = deviceHandle;
+		wcscpy_s(state->deviceName, deviceName);
+		state->outputFile = CreateFileW(deviceName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+		HidD_GetProductString(state->outputFile, state->productName, JoystickState::maxNameLength);
+		HidD_GetManufacturerString(state->outputFile, state->manufacturerName, JoystickState::maxNameLength);
+		joysticks->states[joystickIndex].connected = true;
+	}
 }
 
-void disconnectHIDJoystick(Joysticks* joysticks, const WCHAR* deviceName)
+void disconnectHIDJoystick(Joysticks* joysticks, HANDLE deviceHandle)
 {
 	for (uint32_t i=Joysticks::maxXinputControllers; i<joysticks->count; ++i)
 	{
-		if (wcscmp(deviceName, joysticks->states[i].deviceName) != 0)
+		if (deviceHandle == joysticks->states[i].deviceHandle && !isXboxController(joysticks->states[i].deviceName))
 		{
 			JoystickState* state = &joysticks->states[i];
 			state->connected = false;
@@ -524,7 +527,7 @@ void disconnectHIDJoystick(Joysticks* joysticks, const WCHAR* deviceName)
 	}
 }
 
-void updateConnectionStatus(Joysticks* joysticks, HANDLE device, WPARAM status)
+void updateConnectionStatus(Joysticks* joysticks, HANDLE deviceHandle, WPARAM status)
 {
 	// Check all XInput devices
 	for (unsigned int playerIndex=0; playerIndex<Joysticks::maxXinputControllers; ++playerIndex) {
@@ -532,14 +535,8 @@ void updateConnectionStatus(Joysticks* joysticks, HANDLE device, WPARAM status)
 		joysticks->states[playerIndex].connected = (XInputGetState(playerIndex, &state) == ERROR_SUCCESS);
 	}
 
-	WCHAR deviceName[1024] = {0};
-	UINT deviceNameLength = sizeof(deviceName)/sizeof(*deviceName);
-	bool gotName = GetRawInputDeviceInfoW(device, RIDI_DEVICENAME, deviceName, &deviceNameLength) > 0;
-
-	if (gotName) {
-		if (status == GIDC_ARRIVAL) connectHIDJoystick(joysticks, deviceName);
-		else if (status == GIDC_REMOVAL) disconnectHIDJoystick(joysticks, deviceName);
-	}
+	if (status == GIDC_ARRIVAL) connectHIDJoystick(joysticks, deviceHandle);
+	else if (status == GIDC_REMOVAL) disconnectHIDJoystick(joysticks, deviceHandle);
 }
 
 LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -673,6 +670,12 @@ int main()
 				if (state->currentInputs[inputIndex] > 0.5 && state->previousInputs[inputIndex] <= 0.5f)
 				{
 					const char* inputName = getInputName(joysticks, joystickIndex, inputIndex);
+					if (joystickIndex >= 0 && joystickIndex <= 3) {
+						printf("XBox controller %d: ", joystickIndex);
+					}
+					else {
+						wprintf(L"%s by %s: ", state->productName, state->manufacturerName);
+					}
 					printf("%s\n", inputName);
 				}
 
