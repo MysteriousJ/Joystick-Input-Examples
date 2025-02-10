@@ -9,20 +9,22 @@
 #include <filesystem>
 
 const char* buttonNames[32] = {
-	"TRIGGER",
-	"THUMB",
-	"THUMB2",
-	"TOP",
-	"TOP2",
-	"PINKIE",
-	"BASE",
-	"BASE2",
-	"BASE3",
-	"BASE4",
-	"BASE5",
-	"BASE6",
-	"","","",
-	"DEAD",
+	"Button0",
+	"Button1",
+	"Button2",
+	"Button3",
+	"Button4",
+	"Button5",
+	"Button6",
+	"Button7",
+	"Button8",
+	"Button9",
+	"Button10",
+	"Button11",
+	"Button12",
+	"Button13",
+	"Button14",
+	"Button15",
 
 	"A",
 	"B",
@@ -81,10 +83,12 @@ struct JoystickState
 	static const unsigned int maxButtons = 32;
 	static const unsigned int maxAxes = 32;
 
+	bool connected;
+	unsigned int deviceNumber;
+	int file;
 	bool buttons[maxButtons];
 	Axis axes[maxAxes];
 	char name[128];
-	int file;
 	bool hasRumble;
 	short rumbleEffectID;
 };
@@ -95,18 +99,20 @@ struct Joysticks
 	JoystickState* states;
 };
 
-Joysticks openJoysticks()
+void openJoysticks(Joysticks* joysticks)
 {
-	Joysticks result = {0};
-	for (auto const& entry : std::filesystem::directory_iterator{"/dev/input/by-id"})
+	for (auto const& entry : std::filesystem::directory_iterator{"/dev/input"})
 	{
-		if (entry.path().string().ends_with("event-joystick"))
+		unsigned int deviceNumber;
+		if (sscanf(entry.path().stem().string().c_str(), "event%u", &deviceNumber) == 1)
 		{
 			int file = open(entry.path().string().c_str(), O_RDWR | O_NONBLOCK);
 			if (file != -1)
 			{
 				JoystickState j = {0};
+				j.deviceNumber = deviceNumber;
 				j.file = file;
+				j.connected = true;
 
 				// Get name
 				ioctl(file, EVIOCGNAME(sizeof(j.name)), j.name);
@@ -132,24 +138,36 @@ Joysticks openJoysticks()
 					j.hasRumble = true;
 				}
 
-				++result.count;
-				result.states = (JoystickState*)realloc(result.states, sizeof(JoystickState) * result.count);
-				result.states[result.count-1] = j;
+				bool previouslyConnected = false;
+				for (unsigned int i=0; i<joysticks->count; ++i)
+				{
+					if (joysticks->states[i].deviceNumber == deviceNumber)
+					{
+						joysticks->states[i] = j;
+						previouslyConnected = true;
+					}
+				}
+
+				if (!previouslyConnected)
+				{
+					++joysticks->count;
+					joysticks->states = (JoystickState*)realloc(joysticks->states, sizeof(JoystickState) * joysticks->count);
+					joysticks->states[joysticks->count-1] = j;
+				}
 			}
 		}
 	}
-	return result;
 }
 
 void closeJoysticks(Joysticks* joysticks)
 {
 	for (int i=0; i<joysticks->count; ++i)
 	{
-		close(joysticks->states[i].file);
+		if (joysticks->states[i].connected) {
+			close(joysticks->states[i].file);
+			joysticks->states[i].connected = false;
+		}
 	}
-	free(joysticks->states);
-	joysticks->states = 0;
-	joysticks->count = 0;
 }
 
 void readJoystickInput(JoystickState* joystick)
@@ -193,10 +211,11 @@ void setJoystickRumble(JoystickState* joystick, short weakRumble, short strongRu
 
 int main()
 {
-	Joysticks joysticks = openJoysticks();
+	Joysticks joysticks = {0};
+	openJoysticks(&joysticks);
 
 	int deviceChangeNotify = inotify_init1(IN_NONBLOCK);
-	inotify_add_watch(deviceChangeNotify, "/dev/input/by-id", IN_CREATE | IN_DELETE);
+	inotify_add_watch(deviceChangeNotify, "/dev/input", IN_ATTRIB);
 
 	while (1)
 	{
@@ -205,30 +224,33 @@ int main()
 		if (read(deviceChangeNotify, unneededEventData, sizeof(unneededEventData)) != -1)
 		{
 			closeJoysticks(&joysticks);
-			joysticks = openJoysticks();
+			openJoysticks(&joysticks);
 		}
 
 		// Update and print inputs for each joystick
 		for (unsigned int i=0; i<joysticks.count; ++i)
 		{
 			JoystickState* j = &joysticks.states[i];
-			readJoystickInput(j);
-
-			printf("%s - Axes: ", j->name);
-			for (char axisIndex=0; axisIndex<JoystickState::maxAxes; ++axisIndex)
+			if (j->connected)
 			{
-				if (j->axes[axisIndex].max-j->axes[axisIndex].min) printf("%s:% .3f ", axisNames[axisIndex], j->axes[axisIndex].value);
-			}
-			printf("Buttons: ");
-			for (char buttonIndex=0; buttonIndex<JoystickState::maxButtons; ++buttonIndex)
-			{
-				if (j->buttons[buttonIndex]) printf("%s ", buttonNames[buttonIndex]);
-			}
-			printf("\n");
+				readJoystickInput(j);
 
-			short weakRumble   = fabsf(j->axes[ABS_X].value) * 0xFFFF;
-			short strongRumble = fabsf(j->axes[ABS_Y].value) * 0xFFFF;
-			setJoystickRumble(j, weakRumble, strongRumble);
+				printf("%s, device %d - Axes: ", j->name, j->deviceNumber);
+				for (char axisIndex=0; axisIndex<JoystickState::maxAxes; ++axisIndex)
+				{
+					if (j->axes[axisIndex].max-j->axes[axisIndex].min) printf("%s:% .3f ", axisNames[axisIndex], j->axes[axisIndex].value);
+				}
+				printf("Buttons: ");
+				for (char buttonIndex=0; buttonIndex<JoystickState::maxButtons; ++buttonIndex)
+				{
+					if (j->buttons[buttonIndex]) printf("%s ", buttonNames[buttonIndex]);
+				}
+				printf("\n");
+
+				short weakRumble   = fabsf(j->axes[ABS_X].value) * 0xFFFF;
+				short strongRumble = fabsf(j->axes[ABS_Y].value) * 0xFFFF;
+				setJoystickRumble(j, weakRumble, strongRumble);
+			}
 		}
 		fflush(stdout);
 		usleep(16000);
