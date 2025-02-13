@@ -163,8 +163,8 @@ The highlighted portion is the payload, which starts at byte 0x23, but the buffe
 ### Dualsense
 HID I/O for Playstation 5 controllers is similar to Playstation 4's. In addition to rumble and LED colors, trigger effects can be output to Dualsense controllers. There are 3 official trigger effects you can write to the output buffer:
 ```
-Output buffer bytes 10-20: right trigger effect.
-Output buffer bytes 11-21: left trigger effect.
+Output buffer contains 11 bytes for the left trigger
+effect and 11 bytes for the right trigger effect.
 Byte 0 of the effect block defines one of three effect types:
 	0x21 for feedback
 	0x25 for weapon
@@ -186,9 +186,9 @@ Vibration
 	Byte 9: an 8-bit frequency value.
 Bits unused by an effect should be 0.
 ```
-There are also unofficial trigger effects that may or may not be patched out by future Dualsense firmware. See [this gist by Nielk1](https://gist.github.com/Nielk1/6d54cc2c00d2201ccb8c2720ad7538db) for how to use them.
+The [combined.cpp](src/combined.cpp) example program demonstrates trigger effects on Sony Dualsense controllers. See the `updateDualsense` and `setDualsenseTriggerEffect` procedures for writing to the output buffer. Hold up, left or right on the dpad to enable effects on the left trigger and triangle, square, or circle to enable effects on the right trigger.
 
-The [combined.cpp](src/combined.cpp) example program demonstrates trigger effects on Sony Dualsense controllers. Hold up, left or right on the dpad to enable effects on the left trigger and triangle, square, or circle to enable effects on the right trigger.
+There are also unofficial trigger effects that may or may not be patched out by future Dualsense firmware. See [this gist by Nielk1](https://gist.github.com/Nielk1/6d54cc2c00d2201ccb8c2720ad7538db) for how to use them.
 
 ### XBox controllers
 If you really don't like the XInput API, it's possible to work with XBox controllers without it. [Mārtiņš Možeiko has an excellent example program](https://gist.github.com/mmozeiko/b8ccc54037a5eaf35432396feabbe435) that uses file I/O instead of the XInput API, and [Dave Madison has a great walkthrough of using Wireshark](https://www.partsnotincluded.com/understanding-the-xbox-360-wired-controllers-usb-data/) to reverse engineer the data needed.
