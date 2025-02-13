@@ -159,6 +159,28 @@ When using `WriteFile` for Bluetooth, you'll need to write a 32-bit [CRC](https:
 
 The highlighted portion is the payload, which starts at byte 0x23, but the buffer I gave to `WriteFile()` starts at byte 0x24. Windows inserted a 1-byte header, 0xA2, indicating the Bluetooth HID report type. At the end of the payload is the 4-byte CRC. The entire payload, up to and excluding the bytes used for the CRC, is used to create the CRC hash. That means you'll have to hard code `0xA2` when calculating it.
 
+### Dualsense
+HID I/O for Playstation 5 controllers is similar to Playstation 4's. In addition to rumble and LED colors, trigger effects can be output to Dualsense controllers. There are 3 official trigger effects you can write to the output buffer:
+```
+Output buffer bytes 10-20: right trigger effect.
+Output buffer bytes 11-21: left trigger effect.
+Byte 0 of the effect block defines one of three effect types: 0x21 for feedback, 0x25 for weapon, and 0x26 for vibration.
+Feedback (resistance to being pressed)
+	Bytes 1-2: bitfield turning on or off resistance for 10 zones, starting from the least-significant bit.
+	Bytes 3-6: a 3-bit strength value for each zone, starting from the least-significant bit.
+Weapon (a region where the trigger is hard to press, simulating a gun trigger)
+	Bytes 1-2: bitfield defining the start and end zones of resistance. e.g. to start at zone 2 and end at zone 5: 0b0000000000010010
+	Byte 3: a 3-bit strength value. 
+Vibration
+	Bytes 1-2: bitfield turning on or off resistance for 10 zones, starting from the least-significant bit.
+	Bytes 3-6: a 3-bit strength value for each zone, starting from the least-significant bit.
+	Byte 9: an 8-bit frequency value.
+Bits unused by an effect should be 0.
+```
+There are also unofficial trigger effects that may or may not be patched out by future Dualsense firmware. See [this gist by Nielk1](https://gist.github.com/Nielk1/6d54cc2c00d2201ccb8c2720ad7538db) for how to use them.
+
+The [combined.cpp](src/combined.cpp) example program demonstrates trigger effects on Sony Dualsense controllers. Hold up, left or right on the dpad to enable effects on the left trigger and triangle, square, or circle to enable effects on the right trigger.
+
 ### XBox controllers
 If you really don't like the XInput API, it's possible to work with XBox controllers without it. [Mārtiņš Možeiko has an excellent example program](https://gist.github.com/mmozeiko/b8ccc54037a5eaf35432396feabbe435) that uses file I/O instead of the XInput API, and [Dave Madison has a great walkthrough of using Wireshark](https://www.partsnotincluded.com/understanding-the-xbox-360-wired-controllers-usb-data/) to reverse engineer the data needed.
 

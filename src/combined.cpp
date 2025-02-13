@@ -5,12 +5,39 @@
 #include <hidsdi.h>
 #include <hidpi.h>
 #include <inttypes.h>
+#include <math.h>
 
 enum JoystickType
 {
 	JoystickTypeGeneric,
 	JoystickTypeXbox,
-	JoystickTypeDualshock4
+	JoystickTypeDualshock4,
+	JoystickTypeDualsense,
+};
+
+struct TriggerEffect
+{
+	enum Type { 
+		type_none,
+		type_resistance,
+		type_weapon,
+		type_vibration
+	} type;
+
+	union {
+		struct {
+			float zoneStrengths[10];
+		} resistance;
+		struct {
+			float startPosition;
+			float endPosition;
+			float strength;
+		} weapon;
+		struct {
+			float zoneStrengths[10];
+			float frequency;
+		} vibration;
+	};
 };
 
 struct JoystickState
@@ -34,6 +61,8 @@ struct JoystickState
 	float ledRed;
 	float ledGreen;
 	float ledBlue;
+	TriggerEffect leftTriggerEffect;
+	TriggerEffect rightTriggerEffect;
 
 	BYTE outputBuffer[96];
 	HANDLE outputFile;
@@ -161,6 +190,66 @@ const char* ps4InputNames[] = {
 	"DS4-Dpad Down",
 };
 
+enum DS5Inputs {
+	DS5InputSquare,
+	DS5InputX,
+	DS5InputCircle,
+	DS5InputTriangle,
+	DS5InputL1,
+	DS5InputR1,
+	DS5InputL3,
+	DS5InputR3,
+	DS5InputOptions,
+	DS5InputShare,
+	DS5InputPS,
+	DS5InputTouchPadButton,
+	DS5InputLeftStickLeft,
+	DS5InputLeftStickRight,
+	DS5InputLeftStickUp,
+	DS5InputLeftStickDown,
+	DS5InputRightStickLeft,
+	DS5InputRightStickRight,
+	DS5InputRightStickUp,
+	DS5InputRightStickDown,
+	DS5InputL2,
+	DS5InputR2,
+	DS5InputDpadLeft,
+	DS5InputDpadRight,
+	DS5InputDpadUp,
+	DS5InputDpadDown,
+	DS5InputMicrophoneButton,
+};
+
+const char* ps5InputNames[] = {
+	"DS5-Square",
+	"DS5-X",
+	"DS5-Circle",
+	"DS5-Triangle",
+	"DS5-L1",
+	"DS5-R1",
+	"DS5-L3",
+	"DS5-R3",
+	"DS5-Options",
+	"DS5-Share",
+	"DS5-PlayStation Button",
+	"DS5-Touch Pad Button",
+	"DS5-Left Stick Left",
+	"DS5-Left Stick Right",
+	"DS5-Left Stick Up",
+	"DS5-Left Stick Down",
+	"DS5-Right Stick Left",
+	"DS5-Right Stick Right",
+	"DS5-Right Stick Up",
+	"DS5-Right Stick Down",
+	"DS5-L2",
+	"DS5-R2",
+	"DS5-Dpad Left",
+	"DS5-Dpad Right",
+	"DS5-Dpad Up",
+	"DS5-Dpad Down",
+	"DS5-Microphone Button",
+};
+
 enum GenericInputs {
 	GenericInputButton0,
 	GenericInputButton1,
@@ -285,6 +374,15 @@ bool isDualshock4(RID_DEVICE_INFO_HID info)
 	return info.dwVendorId == sonyVendorID && (info.dwProductId == ds4Gen1ProductID || info.dwProductId == ds4Gen2ProductID);
 }
 
+bool isDualsense(RID_DEVICE_INFO_HID info)
+{
+	const DWORD sonyVendorID = 0x054C;
+	const DWORD dualsenseProductID = 0x0CE6;
+	const DWORD dualsenseEdgeProductID = 0x0DF2;
+
+	return info.dwVendorId == sonyVendorID && (info.dwProductId == dualsenseProductID || info.dwProductId == dualsenseEdgeProductID);
+}
+
 uint32_t makeReflectedCRC32(BYTE* data, uint32_t byteCount)
 {
 	static const uint32_t crcTable[] = {
@@ -399,6 +497,129 @@ void updateDualshock4(JoystickState* state, BYTE rawData[], DWORD byteCount)
 	}
 }
 
+void setDualsenseTriggerEffect(BYTE* dst, TriggerEffect effect)
+{
+	if (effect.type == TriggerEffect::type_weapon) {
+		uint16_t startAndEndZones = (1 << (uint8_t)roundf(effect.weapon.startPosition*8)) | (1 << (uint8_t)roundf(effect.weapon.endPosition*8));
+		dst[0] = 0x25;
+		*((uint16_t*)(&dst[1])) = startAndEndZones;
+		dst[3] = (uint8_t)roundf(effect.weapon.strength * 7);
+	}
+	if (effect.type == TriggerEffect::type_resistance) {
+		uint32_t forceZones = 0;
+		uint16_t activeZones = 0;
+		for (uint32_t i = 0; i < 10; ++i) {
+			if (effect.vibration.zoneStrengths[i] > 0) {
+				activeZones |= 1 << i;
+				forceZones |= ((unsigned char)roundf(effect.vibration.zoneStrengths[i] * 7)) << (3 * i);
+			}
+		}
+		dst[0] = 0x21;
+		*((uint16_t*)(&dst[1])) = activeZones;
+		*((uint32_t*)(&dst[3])) = forceZones;
+	}
+	if (effect.type == TriggerEffect::type_vibration) {
+		uint32_t forceZones = 0;
+		uint16_t activeZones = 0;
+		for (uint32_t i = 0; i < 10; ++i) {
+			if (effect.vibration.zoneStrengths[i] > 0) {
+				activeZones |= 1 << i;
+				forceZones |= ((unsigned char)roundf(effect.vibration.zoneStrengths[i] * 7)) << (3 * i);
+			}
+		}
+		dst[0] = 0x26;
+		*((uint16_t*)(&dst[1])) = activeZones;
+		*((uint32_t*)(&dst[3])) = forceZones;
+		dst[9] = (uint8_t)(effect.vibration.frequency * 255);
+	}
+}
+
+void updateDualsense(JoystickState* state, BYTE rawData[], DWORD byteCount)
+{
+	bool bluetooth = rawData[0] == 0x31;
+	if (rawData[0] != 0x01 && rawData[0] != 0x31) {
+		return;
+	}
+
+	unsigned int offset = (bluetooth ? 2 : 0);
+	state->currentInputs[DS5InputLeftStickLeft]   = -(rawData[1 + offset] / 255.0f * 2 - 1);
+	state->currentInputs[DS5InputLeftStickRight]  = +(rawData[1 + offset] / 255.0f * 2 - 1);
+	state->currentInputs[DS5InputLeftStickUp]     = -(rawData[2 + offset] / 255.0f * 2 - 1);
+	state->currentInputs[DS5InputLeftStickDown]   = +(rawData[2 + offset] / 255.0f * 2 - 1);
+	state->currentInputs[DS5InputRightStickLeft]  = -(rawData[3 + offset] / 255.0f * 2 - 1);
+	state->currentInputs[DS5InputRightStickRight] = +(rawData[3 + offset] / 255.0f * 2 - 1);
+	state->currentInputs[DS5InputRightStickUp]    = -(rawData[4 + offset] / 255.0f * 2 - 1);
+	state->currentInputs[DS5InputRightStickDown]  = +(rawData[4 + offset] / 255.0f * 2 - 1);
+	state->currentInputs[DS5InputL2] = rawData[5 + offset] / 255.0f;
+	state->currentInputs[DS5InputR2] = rawData[6 + offset] / 255.0f;
+	int hat = rawData[8 + offset] & 0x0F;
+	state->currentInputs[DS5InputDpadLeft]  = hat == 5 || hat == 6 || hat == 7;
+	state->currentInputs[DS5InputDpadRight] = hat == 1 || hat == 2 || hat == 3;
+	state->currentInputs[DS5InputDpadUp]    = hat == 7 || hat == 0 || hat == 1;
+	state->currentInputs[DS5InputDpadDown]  = hat == 3 || hat == 4 || hat == 5;
+	state->currentInputs[DS5InputSquare]           = (float)(rawData[8 +  offset] & 0x10);
+	state->currentInputs[DS5InputX]                = (float)(rawData[8 +  offset] & 0x20);
+	state->currentInputs[DS5InputCircle]           = (float)(rawData[8 +  offset] & 0x40);
+	state->currentInputs[DS5InputTriangle]         = (float)(rawData[8 +  offset] & 0x80);
+	state->currentInputs[DS5InputL1]               = (float)(rawData[9 +  offset] & 0x01);
+	state->currentInputs[DS5InputR1]               = (float)(rawData[9 +  offset] & 0x02);
+	state->currentInputs[DS5InputShare]            = (float)(rawData[9 +  offset] & 0x10);
+	state->currentInputs[DS5InputOptions]          = (float)(rawData[9 +  offset] & 0x20);
+	state->currentInputs[DS5InputL3]               = (float)(rawData[9 +  offset] & 0x40);
+	state->currentInputs[DS5InputR3]               = (float)(rawData[9 +  offset] & 0x80);
+	state->currentInputs[DS5InputPS]               = (float)(rawData[10 + offset] & 0x01);
+	state->currentInputs[DS5InputTouchPadButton]   = (float)(rawData[10 + offset] & 0x02);
+	state->currentInputs[DS5InputMicrophoneButton] = (float)(rawData[10 + offset] & 0x04);
+	state->type = JoystickTypeDualsense;
+
+	memset(state->outputBuffer, 0, sizeof(state->outputBuffer));
+	int headerSize = 0;
+	int outputByteCount = 0;
+	if (bluetooth) {
+		offset = 2;
+		headerSize = 1;
+		outputByteCount = 78;
+		state->outputBuffer[0] = 0xA2;
+		state->outputBuffer[1] = 0x31;
+		state->outputBuffer[2] = 0x02;
+	}
+	else {
+		offset = 1;
+		headerSize = 0;
+		outputByteCount = 48;
+		state->outputBuffer[0] = 0x02;
+	}
+
+	// Enable rumble, disable audio haptics, enable right and left trigger effect
+	state->outputBuffer[0 + offset + headerSize] |= 0x0F;
+	// Enable LED color
+	state->outputBuffer[1 + offset + headerSize] |= 0x04;
+	// Enable rumble low pass filter
+	state->outputBuffer[38 + offset + headerSize] |= 0x04;
+
+	state->outputBuffer[2 + offset + headerSize] = (BYTE)(state->lightRumble * 0xFF);
+	state->outputBuffer[3 + offset + headerSize] = (BYTE)(state->heavyRumble * 0xFF);
+
+	setDualsenseTriggerEffect(state->outputBuffer + 10 + offset + headerSize, state->rightTriggerEffect);
+	setDualsenseTriggerEffect(state->outputBuffer + 21 + offset + headerSize, state->leftTriggerEffect);
+
+	state->outputBuffer[44 + offset + headerSize] = (BYTE)(state->ledRed   * 0xFF);
+	state->outputBuffer[45 + offset + headerSize] = (BYTE)(state->ledGreen * 0xFF);
+	state->outputBuffer[46 + offset + headerSize] = (BYTE)(state->ledBlue  * 0xFF);
+
+	if (bluetooth) {
+		uint32_t crc = makeReflectedCRC32(state->outputBuffer, 74);
+		memcpy(state->outputBuffer + 74, &crc, sizeof(crc));
+	}
+
+	DWORD bytesTransferred;
+	if (GetOverlappedResult(state->outputFile, &state->overlapped, &bytesTransferred, false)) {
+		if (state->outputFile != INVALID_HANDLE_VALUE) {
+			WriteFile(state->outputFile, (void*)(state->outputBuffer + headerSize), outputByteCount, 0, &state->overlapped);
+		}
+	}
+}
+
 void parseGenericController(JoystickState* out, BYTE rawData[], DWORD dataSize, _HIDP_PREPARSED_DATA* preparsedData)
 {
 	memset(out->currentInputs, 0, sizeof(out->currentInputs));
@@ -470,6 +691,9 @@ void updateRawInput(Joysticks* joysticks, LPARAM lParam)
 					JoystickState* state = &joysticks->states[i];
 					if (isDualshock4(deviceInfo.hid)) {
 						updateDualshock4(state, input->data.hid.bRawData, input->data.hid.dwSizeHid);
+					}
+					else if (isDualsense(deviceInfo.hid)) {
+						updateDualsense(state, input->data.hid.bRawData, input->data.hid.dwSizeHid);
 					}
 					else {
 						parseGenericController(state, input->data.hid.bRawData, input->data.hid.dwSizeHid, data);
@@ -651,6 +875,7 @@ const char* getInputName(Joysticks joysticks, unsigned int joystickIndex, unsign
 	{
 		case JoystickTypeGeneric: return genericInputNames[inputIndex];
 		case JoystickTypeDualshock4: return ps4InputNames[inputIndex];
+		case JoystickTypeDualsense: return ps5InputNames[inputIndex];
 		case JoystickTypeXbox: return xboxInputNames[inputIndex];
 		default: return 0;
 	}
@@ -692,9 +917,72 @@ int main()
 					state->ledGreen = state->currentInputs[DS4InputTriangle];
 					state->ledBlue = (state->currentInputs[DS4InputX] || state->currentInputs[DS4InputSquare])? 1.0f : 0.0f;
 				}
+				else if (state->type == JoystickTypeDualsense) {
+					state->heavyRumble = state->currentInputs[DS5InputLeftStickUp] + state->currentInputs[DS5InputLeftStickDown];
+					state->lightRumble = state->currentInputs[DS5InputLeftStickLeft] + state->currentInputs[DS5InputLeftStickRight];
+					state->ledRed = (state->currentInputs[DS5InputCircle] || state->currentInputs[DS5InputSquare]) ? 1.0f : 0.0f;
+					state->ledGreen = state->currentInputs[DS5InputTriangle];
+					state->ledBlue = (state->currentInputs[DS5InputX] || state->currentInputs[DS5InputSquare]) ? 1.0f : 0.0f;
+
+					if (state->currentInputs[DS5InputSquare] > 0.5f) {
+						state->rightTriggerEffect = {
+							.type = TriggerEffect::type_resistance,
+							.resistance = {
+								.zoneStrengths = {0.0f, 0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 1.0f}
+							}
+						};
+					}
+					else if (state->currentInputs[DS5InputTriangle] > 0.5f) {
+						state->rightTriggerEffect.type = TriggerEffect::type_weapon;
+						state->rightTriggerEffect.weapon.startPosition = 0.2f;
+						state->rightTriggerEffect.weapon.endPosition   = 0.4f;
+						state->rightTriggerEffect.weapon.strength = 0.8f;
+					}
+					else if (state->currentInputs[DS5InputCircle] > 0.5f) {
+						state->rightTriggerEffect = {
+							.type = TriggerEffect::type_vibration,
+							.vibration = {
+								.zoneStrengths = {0.0f, 0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 1.0f},
+								.frequency = 0.3f
+							}
+						};
+					}
+					else {
+						state->rightTriggerEffect.type = TriggerEffect::type_none;
+					}
+
+					if (state->currentInputs[DS5InputDpadLeft] > 0.5f) {
+						state->leftTriggerEffect = {
+							.type = TriggerEffect::type_resistance,
+							.resistance = {
+								.zoneStrengths = {1.0f, 0.8f, 0.7f, 0.6f, 0.5f, 0.4f, 0.3f, 0.2f, 0.1f, 0.0f}
+							}
+						};
+					}
+					else if (state->currentInputs[DS5InputDpadUp] > 0.5f) {
+						state->leftTriggerEffect.type = TriggerEffect::type_weapon;
+						state->leftTriggerEffect.weapon.startPosition = 0.7f;
+						state->leftTriggerEffect.weapon.endPosition   = 0.9f;
+						state->leftTriggerEffect.weapon.strength = 0.2f;
+					}
+					else if (state->currentInputs[DS5InputDpadRight] > 0.5f) {
+						state->leftTriggerEffect = {
+							.type = TriggerEffect::type_vibration,
+							.vibration = {
+								.zoneStrengths = {1.0f, 0.8f, 0.7f, 0.6f, 0.5f, 0.4f, 0.3f, 0.2f, 0.1f, 0.0f},
+								.frequency = 0.8f
+							}
+						};
+					}
+					else {
+						state->leftTriggerEffect.type = TriggerEffect::type_none;
+					}
+				}
+
+				if (state->lightRumble < 0.1) state->lightRumble = 0;
+				if (state->heavyRumble < 0.1) state->heavyRumble = 0;
 			}
 		}
 		Sleep(16);
 	}
 }
-
