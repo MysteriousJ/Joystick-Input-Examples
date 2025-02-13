@@ -170,15 +170,19 @@ Byte 0 of the effect block defines one of three effect types:
 	0x25 for weapon
 	0x26 for vibration
 Feedback (resistance to being pressed)
-	Bytes 1-2: bitfield turning on or off resistance for 10 zones, starting from the least-significant bit.
-	Bytes 3-6: a 3-bit strength value for each zone, starting from the least-significant bit.
+	Bytes 1-2: bitfield turning on or off resistance for 10 zones,
+		starting from the least-significant bit.
+	Bytes 3-6: a 3-bit strength value for each zone,
+		starting from the least-significant bit.
 Weapon (a region where the trigger is hard to press, simulating a gun trigger)
 	Bytes 1-2: bitfield defining the start and end zones of resistance.
 		e.g. to start at zone 2 and end at zone 5: 0b0000000000010010
 	Byte 3: a 3-bit strength value. 
 Vibration
-	Bytes 1-2: bitfield turning on or off resistance for 10 zones, starting from the least-significant bit.
-	Bytes 3-6: a 3-bit strength value for each zone, starting from the least-significant bit.
+	Bytes 1-2: bitfield turning on or off resistance for 10 zones,
+		starting from the least-significant bit.
+	Bytes 3-6: a 3-bit strength value for each zone,
+		starting from the least-significant bit.
 	Byte 9: an 8-bit frequency value.
 Bits unused by an effect should be 0.
 ```
