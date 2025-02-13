@@ -1,3 +1,4 @@
 all:
-	g++ src/evdev.cpp -o evdev
-	g++ src/joydev.cpp -o joydev
+	mkdir -p build
+	g++ src/evdev.cpp -o build/evdev
+	g++ src/joydev.cpp -o build/joydev
