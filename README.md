@@ -22,6 +22,7 @@ Special thanks to Handmade Network for fostering a community that values explori
 	- [GameInput](#gameinput)
 - [Windows Specialized I/O](#windows-specialized-io)
 	- [Dualshock 4](#dualshock-4)
+ 	- [Dualsense](#dualsense)
 	- [XBox Controllers](#xbox-controllers)
 - [Linux APIs](#linux-apis)
 	- [Joydev](#joydev)
@@ -164,12 +165,16 @@ HID I/O for Playstation 5 controllers is similar to Playstation 4's. In addition
 ```
 Output buffer bytes 10-20: right trigger effect.
 Output buffer bytes 11-21: left trigger effect.
-Byte 0 of the effect block defines one of three effect types: 0x21 for feedback, 0x25 for weapon, and 0x26 for vibration.
+Byte 0 of the effect block defines one of three effect types:
+	0x21 for feedback
+	0x25 for weapon
+	0x26 for vibration
 Feedback (resistance to being pressed)
 	Bytes 1-2: bitfield turning on or off resistance for 10 zones, starting from the least-significant bit.
 	Bytes 3-6: a 3-bit strength value for each zone, starting from the least-significant bit.
 Weapon (a region where the trigger is hard to press, simulating a gun trigger)
-	Bytes 1-2: bitfield defining the start and end zones of resistance. e.g. to start at zone 2 and end at zone 5: 0b0000000000010010
+	Bytes 1-2: bitfield defining the start and end zones of resistance.
+		e.g. to start at zone 2 and end at zone 5: 0b0000000000010010
 	Byte 3: a 3-bit strength value. 
 Vibration
 	Bytes 1-2: bitfield turning on or off resistance for 10 zones, starting from the least-significant bit.
