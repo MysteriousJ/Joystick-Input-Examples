@@ -59,7 +59,7 @@ The basic inputs on joysticks are
 
 Just like how HID devices are described by a usage page and usage, each input on an HID device is also described by a usage page and usage. The standard usages for values are X, Y, Z, Rx, Ry, Rz, Dial, Slider (usages 0x30-0x37 on usage page 1), and Hat Switch (0x39). The only consistant ones are X and Y for the left analog stick, and Hat Switch for Dpad; the rest are arbitrary and their names don't have much practical meaning these days. Buttons are on usage page 9 with each button getting its own usage, starting at 0x01. Subtract 1 from the usage and you'll have the corresponding button index in most APIs.
 
-Analog sticks are sensitive and produce small input values even when at rest. Deadzones are used to ignore the input until it passes a threshold; for example, `if(axis<0.2 && axis>-0.2) axis=0`. Deadzones can be applied to individual axes, or both analog stick axes together for [better results](https://www.gamasutra.com/blogs/JoshSutphin/20130416/190541/Doing_Thumbstick_Dead_Zones_Right.php).
+Analog sticks are sensitive and produce small input values even when at rest. Deadzones are used to ignore the input until it passes a threshold; for example, `if(axis<0.2 && axis>-0.2) axis=0`. Deadzones can be applied to individual axes, or both analog stick axes together for [better results](https://joshsutphin.com/gamedev/doing-thumbstick-dead-zones-right.html).
 
 Joysticks may support non-standard inputs such as touchpads and accelerometers. For HID devices, these are delivered along with standardized data, but are specific to the device and must be reverse-engineered. See [Specialized I/O](#specialized-io) for how to access device-specific data.
 
